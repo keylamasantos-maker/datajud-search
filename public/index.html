@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Consulta DataJud (CNJ)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  select, input, textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #0b1220;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 14px;
+    font-family: inherit;
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display: flex; gap: 14px; }
+  .row > div { flex: 1; }
+  details { margin-bottom: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  #status, #statusLote { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .error { color: #f87171; }
+  .hit {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+    background: #0b1220;
+  }
+  .hit h3 { margin: 0 0 8px; font-size: 15px; color: #93c5fd; }
+  .field { font-size: 13px; margin-bottom: 4px; }
+  .field b { color: var(--muted); font-weight: 600; }
+  .tag {
+    display: inline-block;
+    background: #1e3a5f;
+    color: #93c5fd;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-right: 6px;
+  }
+  .tag.not-found { background: #4c1d1d; color: #fca5a5; }
+  pre {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    overflow: auto;
+    font-size: 12px;
+    max-height: 400px;
+  }
+  a { color: #93c5fd; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 14px;
+  }
+  .tab-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .andamento-list { margin: 8px 0; }
+  .andamento-item {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 13px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .andamento-item:last-child { border-bottom: none; }
+  .andamento-data { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #0b1220;
+    white-space: nowrap;
+  }
+  .principais-box {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    background: #0f1c33;
+  }
+  .principais-box .empty { color: var(--muted); font-size: 13px; }
+
+  .resumo-box {
+    border-left: 3px solid var(--accent);
+    background: #0f1c33;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    font-style: italic;
+    color: #cbd5e1;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Consulta de Processos — API Pública DataJud (CNJ)</h1>
+  <div class="sub">
+    Metadados públicos de processos judiciais, via
+    <a href="https://datajud-wiki.cnj.jus.br/api-publica/" target="_blank">API Pública do DataJud</a>.
+  </div>
+
+  <div class="tabs">
+    <button type="button" class="tab-btn active" data-tab="individual">Busca individual</button>
+    <button type="button" class="tab-btn" data-tab="lote">Busca em lote (base de processos)</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-individual">
+    <div class="panel">
+      <form id="searchForm">
+        <label for="tribunal">Tribunal (detectado automaticamente pelo número, se possível)</label>
+        <select id="tribunal">
+          <option value="">(detectar automaticamente pelo número)</option>
+        </select>
+
+        <label for="numeroProcesso">Número do processo (CNJ, com ou sem pontuação)</label>
+        <input id="numeroProcesso" placeholder="0000832-35.2018.4.01.3202" />
+        <div id="tribunalDetectado" style="font-size:12px; margin-top:-10px; margin-bottom:14px; color:var(--muted);"></div>
+
+        <details>
+          <summary>Busca avançada (usada apenas se o número do processo estiver em branco)</summary>
+          <div class="row">
+            <div>
+              <label for="classeCodigo">Código da classe processual</label>
+              <input id="classeCodigo" type="number" placeholder="ex.: 1116" />
+            </div>
+            <div>
+              <label for="orgaoCodigo">Código do órgão julgador</label>
+              <input id="orgaoCodigo" type="number" placeholder="ex.: 13597" />
+            </div>
+            <div>
+              <label for="assuntoCodigo">Código do assunto</label>
+              <input id="assuntoCodigo" type="number" placeholder="ex.: 6017" />
+            </div>
+          </div>
+        </details>
+
+        <button type="submit" id="submitBtn">Pesquisar</button>
+        <div id="status"></div>
+      </form>
+    </div>
+
+    <button type="button" id="exportBtn" style="display:none; margin-bottom:14px;">Exportar para Excel</button>
+    <div id="results"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-lote">
+    <div class="panel">
+      <form id="loteForm">
+        <label for="tribunalPadrao">
+          Tribunal padrão (opcional — o tribunal é detectado automaticamente pelo número do
+          processo; use isto só como reserva para números fora do padrão CNJ)
+        </label>
+        <select id="tribunalPadrao">
+          <option value="">(nenhum — detectar automaticamente pelo número)</option>
+        </select>
+
+        <label for="arquivoImportar">
+          Importar planilha (.xlsx ou .csv) com sua base de processos — preenche a lista abaixo automaticamente
+        </label>
+        <input type="file" id="arquivoImportar" accept=".xlsx,.csv" />
+        <div id="statusImportar" style="font-size:12px; margin-bottom:14px;"></div>
+
+        <label for="listaProcessos">
+          Números dos processos, um por linha — pode misturar processos de tribunais diferentes na
+          mesma lista, o tribunal é detectado pelo número. Se algum número não seguir o padrão CNJ,
+          informe o alias manualmente depois de um ";" (ex.:
+          <code>0000832-35.2018.4.01.3202;api_publica_trf1</code>).
+        </label>
+        <textarea id="listaProcessos" placeholder="0000832-35.2018.4.01.3202
+0000832-35.2018.4.01.3202;api_publica_trf1"></textarea>
+
+        <button type="submit" id="submitLoteBtn">Consultar lote</button>
+        <div id="statusLote"></div>
+      </form>
+    </div>
+
+    <button type="button" id="exportLoteBtn" style="display:none; margin-bottom:14px;">Exportar para Excel</button>
+    <div id="resultsLote"></div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById("searchForm");
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results");
+const submitBtn = document.getElementById("submitBtn");
+
+const loteForm = document.getElementById("loteForm");
+const statusLoteEl = document.getElementById("statusLote");
+const resultsLoteEl = document.getElementById("resultsLote");
+const submitLoteBtn = document.getElementById("submitLoteBtn");
+
+const exportBtn = document.getElementById("exportBtn");
+const exportLoteBtn = document.getElementById("exportLoteBtn");
+let ultimoIndividual = [];
+let ultimoLote = [];
+
+async function exportarXlsx(processos, btn) {
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Gerando planilha...";
+  try {
+    const resp = await fetch("/api/exportar-xlsx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processos }),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || "Falha ao gerar a planilha.");
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "casos-datajud.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+exportBtn.addEventListener("click", () => exportarXlsx(ultimoIndividual, exportBtn));
+exportLoteBtn.addEventListener("click", () => exportarXlsx(ultimoLote, exportLoteBtn));
+
+const statusImportarEl = document.getElementById("statusImportar");
+document.getElementById("arquivoImportar").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  statusImportarEl.textContent = "Lendo arquivo...";
+  statusImportarEl.className = "";
+
+  try {
+    const resp = await fetch("/api/importar?filename=" + encodeURIComponent(file.name), {
+      method: "POST",
+      body: file,
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) throw new Error(data.error || "Falha ao importar o arquivo.");
+
+    const linhas = data.itens.map((it) => (it.tribunal ? `${it.numeroProcesso};${it.tribunal}` : it.numeroProcesso));
+    document.getElementById("listaProcessos").value = linhas.join("\n");
+    statusImportarEl.textContent = `${data.itens.length} processo(s) importado(s) para a lista abaixo — revise e clique em "Consultar lote".`;
+  } catch (err) {
+    statusImportarEl.textContent = err.message;
+    statusImportarEl.className = "error";
+  } finally {
+    e.target.value = "";
+  }
+});
+
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+function populateTribunalSelect(select, groups) {
+  for (const [categoria, tribunais] of Object.entries(groups)) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = categoria;
+    for (const [alias, nome] of Object.entries(tribunais)) {
+      const opt = document.createElement("option");
+      opt.value = alias;
+      opt.textContent = nome;
+      optgroup.appendChild(opt);
+    }
+    select.appendChild(optgroup);
+  }
+}
+
+let aliasParaNome = {};
+fetch("/tribunais")
+  .then((r) => r.json())
+  .then((groups) => {
+    populateTribunalSelect(document.getElementById("tribunal"), groups);
+    populateTribunalSelect(document.getElementById("tribunalPadrao"), groups);
+    for (const grupo of Object.values(groups)) Object.assign(aliasParaNome, grupo);
+  });
+
+const tribunalDetectadoEl = document.getElementById("tribunalDetectado");
+let detectarTimeout = null;
+document.getElementById("numeroProcesso").addEventListener("input", (e) => {
+  clearTimeout(detectarTimeout);
+  const numero = e.target.value.replace(/\D/g, "");
+  if (numero.length !== 20) {
+    tribunalDetectadoEl.textContent = "";
+    return;
+  }
+  detectarTimeout = setTimeout(async () => {
+    try {
+      const resp = await fetch("/api/detectar-tribunal?numero=" + numero);
+      const data = await resp.json();
+      if (data.tribunal) {
+        document.getElementById("tribunal").value = data.tribunal;
+        tribunalDetectadoEl.textContent = `Tribunal detectado: ${aliasParaNome[data.tribunal] || data.tribunal}`;
+      } else {
+        tribunalDetectadoEl.textContent = "Não foi possível detectar o tribunal por este número — selecione manualmente.";
+      }
+    } catch {
+      tribunalDetectadoEl.textContent = "";
+    }
+  }, 250);
+});
+
+function fmtDate(value) {
+  if (!value) return "-";
+  // A API retorna datas tanto em ISO 8601 quanto no formato compacto AAAAMMDDHHmmss
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value);
+  const iso = compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
+    : value;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString("pt-BR");
+}
+
+function textoAndamento(mov) {
+  const complementos = (mov.complementosTabelados || [])
+    .map((c) => c.nome)
+    .filter(Boolean)
+    .join(", ");
+  let texto = mov.nome || "-";
+  if (complementos) texto += ` (${complementos})`;
+  if (mov.orgaoJulgador && mov.orgaoJulgador.nome) texto += ` — ${mov.orgaoJulgador.nome}`;
+  return texto;
+}
+
+function renderAndamentoItem(mov) {
+  const badge = mov.categoria
+    ? `<span class="badge" style="background:${mov.categoria.cor}">${mov.categoria.label}</span>`
+    : "";
+  return `<div class="andamento-item"><span class="andamento-data">${fmtDate(mov.dataHora)}</span>${badge}<span>${textoAndamento(mov)}</span></div>`;
+}
+
+function renderPrincipais(movimentos) {
+  const principais = movimentos.filter((m) => m.categoria);
+  if (principais.length === 0) {
+    return `<div class="principais-box"><div class="empty">Nenhum andamento das categorias em destaque (audiência, sentença, defesa, acórdão, recurso, decisão, trânsito em julgado) foi encontrado neste processo.</div></div>`;
+  }
+  return `<div class="principais-box"><div class="andamento-list">${principais.map(renderAndamentoItem).join("")}</div></div>`;
+}
+
+function resumoPadronizado(movimentosOrdenados, assuntosNomes) {
+  const assuntosTexto = assuntosNomes.length > 0 ? assuntosNomes.join(", ") : "assunto não informado";
+  const relevantes = movimentosOrdenados.filter((m) => m.categoria);
+  const ultimoRelevante = relevantes[relevantes.length - 1];
+
+  let parteAndamento;
+  if (ultimoRelevante) {
+    parteAndamento = `${ultimoRelevante.categoria.label} em ${fmtDate(ultimoRelevante.dataHora)}`;
+  } else {
+    const ultimoGeral = movimentosOrdenados[movimentosOrdenados.length - 1];
+    parteAndamento = ultimoGeral
+      ? `(sem andamento em destaque; último andamento geral: ${ultimoGeral.nome} em ${fmtDate(ultimoGeral.dataHora)})`
+      : "sem andamentos registrados";
+  }
+
+  return `Essa ação trata de: ${assuntosTexto}. Último andamento relevante: ${parteAndamento}.`;
+}
+
+function renderHit(hit) {
+  const s = hit._source || {};
+  const movimentos = [...(s.movimentos || [])].sort(
+    (a, b) => new Date(fmtIso(a.dataHora)) - new Date(fmtIso(b.dataHora))
+  );
+  const ultimoMovimento = movimentos[movimentos.length - 1];
+  const assuntosNomes = (s.assuntos || []).flat().map((a) => a.nome).filter(Boolean);
+  const assuntos = assuntosNomes.join(", ");
+
+  const div = document.createElement("div");
+  div.className = "hit";
+  div.innerHTML = `
+    <h3>${s.numeroProcesso || hit._id}</h3>
+    <div class="field"><span class="tag">${s.tribunal || ""}</span><span class="tag">Grau: ${s.grau || "-"}</span></div>
+    <div class="field"><b>Classe:</b> ${s.classe ? s.classe.nome + " (" + s.classe.codigo + ")" : "-"}</div>
+    <div class="field"><b>Órgão julgador:</b> ${s.orgaoJulgador ? s.orgaoJulgador.nome : "-"}</div>
+    <div class="field"><b>Data de ajuizamento:</b> ${fmtDate(s.dataAjuizamento)}</div>
+    <div class="field"><b>Última atualização:</b> ${fmtDate(s.dataHoraUltimaAtualizacao)}</div>
+    <div class="field"><b>Assuntos:</b> ${assuntos || "-"}</div>
+    <div class="field"><b>Último movimento:</b> ${ultimoMovimento ? textoAndamento(ultimoMovimento) + " em " + fmtDate(ultimoMovimento.dataHora) : "-"}</div>
+    <div class="resumo-box">${resumoPadronizado(movimentos, assuntosNomes)}</div>
+    <div class="field" style="margin-top:10px;"><b>Andamentos em destaque:</b></div>
+    ${renderPrincipais(movimentos)}
+    <details>
+      <summary>Ver todos os andamentos (${movimentos.length})</summary>
+      <div class="andamento-list">${movimentos.map(renderAndamentoItem).join("")}</div>
+    </details>
+    <details style="margin-top:8px;">
+      <summary>Ver JSON completo</summary>
+      <pre>${JSON.stringify(s, null, 2)}</pre>
+    </details>
+  `;
+  return div;
+}
+
+function hitParaProcesso(hit) {
+  const s = hit._source || {};
+  return {
+    numeroProcesso: s.numeroProcesso,
+    tribunal: s.tribunal,
+    encontrado: true,
+    classe: s.classe,
+    grau: s.grau,
+    orgaoJulgador: s.orgaoJulgador,
+    dataAjuizamento: s.dataAjuizamento,
+    assuntos: (s.assuntos || []).flat(),
+    andamentos: s.movimentos || [],
+  };
+}
+
+function fmtIso(value) {
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value || "");
+  return compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
+    : value;
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  resultsEl.innerHTML = "";
+  statusEl.textContent = "Consultando...";
+  statusEl.className = "";
+  submitBtn.disabled = true;
+  exportBtn.style.display = "none";
+
+  const payload = {
+    tribunal: document.getElementById("tribunal").value,
+    numeroProcesso: document.getElementById("numeroProcesso").value,
+    classeCodigo: document.getElementById("classeCodigo").value,
+    orgaoCodigo: document.getElementById("orgaoCodigo").value,
+    assuntoCodigo: document.getElementById("assuntoCodigo").value,
+  };
+
+  try {
+    const resp = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) {
+      statusEl.textContent = data.error || "Erro na consulta.";
+      statusEl.className = "error";
+      return;
+    }
+
+    const hits = (data.hits && data.hits.hits) || [];
+    const total = data.hits && data.hits.total ? data.hits.total.value : hits.length;
+    statusEl.textContent = `${total} resultado(s) encontrado(s) — exibindo ${hits.length}.`;
+
+    if (hits.length === 0) {
+      resultsEl.innerHTML = "<div class='panel'>Nenhum processo encontrado.</div>";
+      ultimoIndividual = [];
+      exportBtn.style.display = "none";
+    } else {
+      hits.forEach((hit) => resultsEl.appendChild(renderHit(hit)));
+      ultimoIndividual = hits.map(hitParaProcesso);
+      exportBtn.style.display = "inline-block";
+    }
+  } catch (err) {
+    statusEl.textContent = "Falha ao conectar à API: " + err.message;
+    statusEl.className = "error";
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+function renderProcessoLote(item) {
+  const div = document.createElement("div");
+  div.className = "hit";
+
+  if (!item.encontrado) {
+    div.innerHTML = `
+      <h3>${item.numeroProcesso || "-"}</h3>
+      <div class="field"><span class="tag not-found">Não encontrado</span><span class="tag">${item.tribunal || "-"}</span></div>
+      ${item.erro ? `<div class="field error">${item.erro}</div>` : ""}
+    `;
+    return div;
+  }
+
+  const assuntosNomes = (item.assuntos || []).map((a) => a.nome).filter(Boolean);
+  const assuntos = assuntosNomes.join(", ");
+  const movimentos = item.andamentos || [];
+
+  div.innerHTML = `
+    <h3>${item.numeroProcesso}</h3>
+    <div class="field"><span class="tag">${item.tribunal || ""}</span><span class="tag">Grau: ${item.grau || "-"}</span></div>
+    <div class="field"><b>Classe:</b> ${item.classe ? item.classe.nome + " (" + item.classe.codigo + ")" : "-"}</div>
+    <div class="field"><b>Órgão julgador:</b> ${item.orgaoJulgador ? item.orgaoJulgador.nome : "-"}</div>
+    <div class="field"><b>Assuntos:</b> ${assuntos || "-"}</div>
+    <div class="resumo-box">${resumoPadronizado(movimentos, assuntosNomes)}</div>
+    <div class="field" style="margin-top:10px;"><b>Andamentos em destaque:</b></div>
+    ${renderPrincipais(movimentos)}
+    <details>
+      <summary>Ver todos os andamentos (${movimentos.length})</summary>
+      <div class="andamento-list">${movimentos.map(renderAndamentoItem).join("")}</div>
+    </details>
+  `;
+  return div;
+}
+
+function parseLista(texto, tribunalPadrao) {
+  return texto
+    .split("\n")
+    .map((linha) => linha.trim())
+    .filter(Boolean)
+    .map((linha) => {
+      const [numero, tribunal] = linha.split(";").map((v) => v && v.trim());
+      return { numeroProcesso: numero, tribunal: tribunal || tribunalPadrao };
+    });
+}
+
+loteForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  resultsLoteEl.innerHTML = "";
+  statusLoteEl.className = "";
+  submitLoteBtn.disabled = true;
+  exportLoteBtn.style.display = "none";
+
+  const tribunalPadrao = document.getElementById("tribunalPadrao").value;
+  const itens = parseLista(document.getElementById("listaProcessos").value, tribunalPadrao);
+
+  if (itens.length === 0) {
+    statusLoteEl.textContent = "Cole ao menos um número de processo.";
+    statusLoteEl.className = "error";
+    submitLoteBtn.disabled = false;
+    return;
+  }
+
+  statusLoteEl.textContent = `Consultando ${itens.length} processo(s)... isso pode levar alguns segundos.`;
+
+  try {
+    const resp = await fetch("/api/lote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itens, tribunalPadrao }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) {
+      statusLoteEl.textContent = data.error || "Erro na consulta em lote.";
+      statusLoteEl.className = "error";
+      return;
+    }
+
+    const encontrados = data.resultados.filter((r) => r.encontrado).length;
+    statusLoteEl.textContent = `${encontrados} de ${data.resultados.length} processo(s) encontrado(s).`;
+    data.resultados.forEach((item) => resultsLoteEl.appendChild(renderProcessoLote(item)));
+    ultimoLote = data.resultados;
+    exportLoteBtn.style.display = "inline-block";
+  } catch (err) {
+    statusLoteEl.textContent = "Falha ao conectar à API: " + err.message;
+    statusLoteEl.className = "error";
+  } finally {
+    submitLoteBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

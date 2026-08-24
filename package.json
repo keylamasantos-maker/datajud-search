@@ -1,0 +1,13 @@
+{
+  "name": "datajud-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Consulta de processos via API Pública do DataJud (CNJ)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
