@@ -1,0 +1,24 @@
+# Hospedagem no Render (Blueprint). Crie pelo painel: New > Blueprint > este repositório.
+services:
+  - type: web
+    name: litigation-audit-desk
+    runtime: node
+    plan: starter
+    region: virginia
+    buildCommand: echo "sem dependencias"
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: APP_USER
+        value: syngenta
+      - key: APP_PASSWORD
+        sync: false
+      - key: LITIGATION_DIR
+        value: /var/data/litigation
+      - key: NODE_VERSION
+        value: "22"
+    disk:
+      name: litigation-data
+      mountPath: /var/data
+      sizeGB: 1

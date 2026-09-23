@@ -44,9 +44,9 @@ if (!APP_PASSWORD) {
 const API_KEY =
   "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
 
-function callDataJud(tribunal, query) {
+function callDataJud(tribunal, query, extra = {}) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ query });
+    const body = JSON.stringify({ query, ...extra });
     const req = https.request(
       {
         hostname: "api-publica.datajud.cnj.jus.br",
@@ -286,7 +286,17 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
 };
 
+// Módulo Litigation Reporting & Audit (ver litigation/README.md)
+const litigation = require("./litigation/routes.js")({ callDataJud, detectarTribunal, buildXlsx, parseXlsx });
+
 const server = http.createServer((req, res) => {
+  // verificação de saúde do servidor de hospedagem (sem login, não expõe dados)
+  if (req.url === "/healthz") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("ok");
+    return;
+  }
+
   if (!autenticado(req)) {
     res.writeHead(401, {
       "WWW-Authenticate": 'Basic realm="Consulta DataJud", charset="UTF-8"',
@@ -295,6 +305,8 @@ const server = http.createServer((req, res) => {
     res.end("Autenticação necessária.");
     return;
   }
+
+  if (litigation.handle(req, res)) return;
 
   if (req.method === "GET" && req.url === "/") {
     const file = fs.readFileSync(path.join(__dirname, "public", "index.html"));
@@ -446,6 +458,11 @@ const server = http.createServer((req, res) => {
   res.end("Não encontrado");
 });
 
-server.listen(PORT, () => {
-  console.log(`Consulta DataJud rodando em http://localhost:${PORT}`);
-});
+// Quando importado (ex.: pelo conector local do Claude, mcp-datajud.js), só expõe as funções.
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Consulta DataJud rodando em http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { callDataJud, detectarTribunal };
