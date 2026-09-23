@@ -1,0 +1,2237 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<script>
+/* ===== Ponte local: roda a mesma tela no seu computador, com DataJud direto ===== */
+(() => {
+  const j = async (url, opts) => { const r = await fetch(url, opts); const b = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(b.error || `Erro ${r.status}`), { code: b.code }); return b; };
+  const enc = encodeURIComponent;
+  const doc = (p) => ({
+    id: p.split("/").pop(), path: p,
+    async get() { const b = await j(`/api/kv/doc?path=${enc(p)}`); return { id: p.split("/").pop(), exists: b.exists, data: () => b.data, metadata: {} }; },
+    async set(d) { await j(`/api/kv/doc?path=${enc(p)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) }); },
+    async update(d) { const s = await this.get(); await this.set(Object.assign({}, s.exists ? s.data() : {}, d)); },
+    async delete() { await j(`/api/kv/doc?path=${enc(p)}`, { method: "DELETE" }); },
+  });
+  const collection = (p) => {
+    const q = { _o: null, _d: "asc", _l: 100000 };
+    Object.assign(q, {
+      orderBy(f, d) { q._o = f; q._d = d || "asc"; return q; }, limit(n) { q._l = n; return q; }, where() { return q; },
+      doc: (id) => doc(`${p}/${id || Date.now().toString(36) + Math.random().toString(36).slice(2, 8)}`),
+      async add(d) { const r = doc(`${p}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`); await r.set(d); return r; },
+      async get() {
+        const b = await j(`/api/kv/col?path=${enc(p)}`);
+        let docs = b.docs.map((x) => ({ id: x.id, exists: true, data: () => x.data, metadata: {} }));
+        if (q._o) docs.sort((a, c) => ((a.data()[q._o] < c.data()[q._o]) ? -1 : 1) * (q._d === "desc" ? -1 : 1));
+        docs = docs.slice(0, q._l);
+        return { docs, size: docs.length, empty: !docs.length };
+      },
+    });
+    return q;
+  };
+  const db = { doc, collection };
+  let meta = null;
+  const user = { me: async () => { meta = meta || (await j("/api/lit/meta")); return { id: "local:" + meta.user, name: meta.user }; }, profiles: async () => ({}) };
+  const downloads = {
+    async save({ filename, data }) {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data])); a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      return { status: "saved" };
+    },
+  };
+  const mcp = {
+    async callTool(server, tool, input) {
+      if (server !== "host:datajud" || tool !== "consultar_processos") throw Object.assign(new Error("Ferramenta indisponível."), { code: "not_in_manifest" });
+      const payload = await j("/api/lit/datajud-batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+      return { content: [], payload };
+    },
+  };
+  window.claude = { use: async (n) => ({ db, user, downloads, mcp })[n] || null };
+  window.__LOCAL__ = true;
+})();
+
+</script>
+<title>Litigation Audit Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --ground:#F3F5F2; --surface:#FFFFFF; --sunk:#E9EDE8; --ink:#17211D; --ink-2:#44534C; --muted:#6B7A72; --line:#D6DDD8; --line-2:#E4E9E5;
+  --accent:#0D6A58; --accent-ink:#FFFFFF; --accent-soft:#DDEFE9;
+  --crit:#B3261E; --crit-soft:#FBE7E5; --rel:#B45F06; --rel-soft:#FCEBD7; --qual:#8A6D00; --qual-soft:#F8F0CC; --ok:#1F7A3E; --ok-soft:#DDF2E3;
+  --dj:#2F5DA8; --dj-soft:#E3ECFA;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --cond:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --ground:#0E1412; --surface:#151D1A; --sunk:#1B2521; --ink:#E4EBE7; --ink-2:#BAC7C0; --muted:#8C9C94; --line:#2A3631; --line-2:#222C28;
+  --accent:#43B79D; --accent-ink:#06201A; --accent-soft:#16342C;
+  --crit:#F2877F; --crit-soft:#3A1917; --rel:#F0A55A; --rel-soft:#382611; --qual:#E2C552; --qual-soft:#322B0E; --ok:#6CCB8C; --ok-soft:#14301F; --dj:#8DB0EE; --dj-soft:#1A2640;}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --ground:#0E1412; --surface:#151D1A; --sunk:#1B2521; --ink:#E4EBE7; --ink-2:#BAC7C0; --muted:#8C9C94; --line:#2A3631; --line-2:#222C28;
+  --accent:#43B79D; --accent-ink:#06201A; --accent-soft:#16342C;
+  --crit:#F2877F; --crit-soft:#3A1917; --rel:#F0A55A; --rel-soft:#382611; --qual:#E2C552; --qual-soft:#322B0E; --ok:#6CCB8C; --ok-soft:#14301F; --dj:#8DB0EE; --dj-soft:#1A2640;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--ground);color:var(--ink);font:14px/1.45 var(--sans);}
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100%}
+/* rail */
+.rail{background:var(--surface);border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:18px;position:sticky;top:env(safe-area-inset-top,0px);height:100vh;overflow:auto}
+.brand{font:700 15px/1.2 var(--cond);letter-spacing:.02em;display:flex;flex-direction:column;gap:2px}
+.brand small{font:500 11px var(--sans);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.nav{display:flex;flex-direction:column;gap:2px;counter-reset:step}
+.nav button{all:unset;cursor:pointer;display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--r);color:var(--ink-2);font-weight:500}
+.nav button::before{counter-increment:step;content:counter(step);font:500 11px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:50%;width:20px;height:20px;display:grid;place-items:center}
+.nav button:hover{background:var(--sunk)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.nav button[aria-current="page"]{background:var(--accent-soft);color:var(--ink)}
+.nav button[aria-current="page"]::before{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.nav .cnt{font:500 11px var(--mono);color:var(--muted)}
+.railfoot{margin-top:auto;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+/* main */
+main{min-width:0;padding-block:0 48px}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:color-mix(in srgb,var(--ground) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:12px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.cyc{display:flex;align-items:baseline;gap:10px}
+.cyc h1{font:700 22px/1 var(--cond);margin:0;letter-spacing:.01em}
+.meta{color:var(--muted);font-size:12px}
+.spacer{flex:1}
+.page{padding:22px 28px;display:flex;flex-direction:column;gap:20px;max-width:1440px}
+h2{font:600 18px/1.2 var(--cond);margin:0;text-wrap:balance;letter-spacing:.01em}
+h3{font:600 14px/1.2 var(--cond);margin:0;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-2)}
+p{margin:0}
+.lede{color:var(--ink-2);max-width:72ch}
+.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.muted{color:var(--muted)}
+/* pills */
+.pill{display:inline-flex;align-items:center;gap:5px;font:600 11px/1 var(--sans);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
+.pill.crit{background:var(--crit-soft);color:var(--crit)} .pill.rel{background:var(--rel-soft);color:var(--rel)} .pill.qual{background:var(--qual-soft);color:var(--qual)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.acc{background:var(--accent-soft);color:var(--accent)} .pill.dj{background:var(--dj-soft);color:var(--dj)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.panel>.hd{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line-2)}
+.panel>.bd{padding:16px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+/* stat strip */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.strip>div{padding:12px 16px;border-right:1px solid var(--line-2);display:flex;flex-direction:column;gap:2px}
+.strip>div:last-child{border-right:0}
+.strip b{font:600 24px/1.1 var(--cond);font-variant-numeric:tabular-nums}
+.strip span{font-size:12px;color:var(--muted)}
+.strip .crit b{color:var(--crit)} .strip .rel b{color:var(--rel)} .strip .qual b{color:var(--qual)} .strip .ok b{color:var(--ok)}
+/* buttons & inputs */
+.btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 13px var(--sans);white-space:nowrap}
+.btn:hover{background:var(--sunk)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{border-color:var(--crit);color:var(--crit)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn.sm{padding:5px 9px;font-size:12px}
+input[type=text],input[type=number],input[type=search],select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:7px 9px;min-width:0}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+textarea{width:100%;min-height:64px;resize:vertical}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{all:unset;cursor:pointer;display:inline-flex;gap:6px;align-items:center;padding:4px 8px;border:1px solid var(--line);border-radius:999px;font:500 12px var(--sans);background:var(--surface);color:var(--ink-2)}
+.chip b{font:500 11px var(--mono);color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.chip[aria-pressed="true"] b{color:var(--surface)}
+.chip:focus-visible{outline:2px solid var(--accent)}
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{position:sticky;top:0;background:var(--sunk);text-align:left;font:600 11px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--line-2);vertical-align:top}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--sunk)}
+td.sev{padding:0;width:4px} td.sev.C{background:var(--crit)} td.sev.R{background:var(--rel)} td.sev.Q{background:var(--qual)}
+.cell-src{max-width:190px;color:var(--ink-2)}
+.wrapcell{max-width:320px}
+.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+/* upload slots */
+.slot{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--line-2)}
+.slot:first-of-type{border-top:0}
+.slot .ic{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font:600 11px var(--mono);background:var(--sunk);color:var(--ink-2)}
+.slot .ic.ok{background:var(--ok-soft);color:var(--ok)} .slot .ic.dj{background:var(--dj-soft);color:var(--dj)}
+.drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:14px;text-align:center;color:var(--muted)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+/* case review */
+.cmp{display:grid;grid-template-columns:170px repeat(4,minmax(150px,1fr));border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface);min-width:820px}
+.cmp>div{padding:8px 10px;border-bottom:1px solid var(--line-2);border-right:1px solid var(--line-2);font-size:13px;word-break:break-word}
+.cmp>div:nth-child(5n){border-right:0}
+.cmp .h{background:var(--sunk);font:600 11px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.cmp .k{color:var(--muted);font-size:12px}
+.cmp .flag{background:var(--crit-soft)}
+.timeline{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line);margin-left:6px}
+.timeline .ev{position:relative;padding:4px 0 10px 16px;font-size:13px}
+.timeline .ev::before{content:"";position:absolute;left:-6px;top:8px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--dj)}
+.timeline .ev.new::before{background:var(--dj)}
+.issue{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.issue.C{border-left-color:var(--crit)} .issue.R{border-left-color:var(--rel)} .issue.Q{border-left-color:var(--qual)}
+.issue.done{opacity:.8}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.seg{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;width:max-content;max-width:100%}
+.seg label{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:12px;font-weight:500;cursor:pointer;border-right:1px solid var(--line);background:var(--surface)}
+.seg label:last-child{border-right:0}
+.seg input{accent-color:var(--accent)}
+.seg label:has(input:checked){background:var(--accent-soft);color:var(--ink)}
+.narr{font-size:13px;color:var(--ink-2);max-height:220px;overflow:auto;padding:10px 12px;background:var(--sunk);border-radius:var(--r);white-space:pre-wrap}
+.notice{padding:10px 14px;border-radius:var(--r);background:var(--dj-soft);color:var(--ink);font-size:13px;display:flex;gap:10px;align-items:flex-start}
+.notice.warn{background:var(--rel-soft)}
+.notice.crit{background:var(--crit-soft)}
+.bar{height:6px;background:var(--sunk);border-radius:99px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.toast{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--surface);padding:10px 14px;border-radius:var(--r);font-size:13px;z-index:50;max-width:min(420px,calc(100vw - 40px))}
+.check{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line-2)}
+.check:first-child{border-top:0}
+.check .m{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 11px var(--sans);margin-top:1px}
+.check .m.y{background:var(--ok);color:var(--surface)} .check .m.n{background:var(--crit);color:var(--surface)} .check .m.w{background:var(--rel);color:var(--surface)}
+.rulecard{display:grid;grid-template-columns:86px 1fr;gap:4px 12px;padding:12px 0;border-top:1px solid var(--line-2);font-size:13px}
+.rulecard:first-child{border-top:0}
+.rulecard .lbl{color:var(--muted);font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+details>summary{cursor:pointer}
+pre.q{font:12px/1.4 var(--mono);background:var(--sunk);padding:10px;border-radius:var(--r);overflow:auto;max-height:220px;margin:0}
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;flex-direction:column;gap:10px;border-right:0;border-bottom:1px solid var(--line)}
+  .nav{flex-direction:row;overflow-x:auto}
+  .nav button{grid-template-columns:20px auto;white-space:nowrap}
+  .nav .cnt{display:none}
+  .railfoot{display:none}
+  .topbar,.page{padding-left:16px;padding-right:16px}
+  .slot{grid-template-columns:auto 1fr}
+  .slot>:last-child{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.fchips{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.fchip{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--sunk)}
+.fchip .m{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:700 11px var(--sans);background:var(--line);color:var(--ink-2)}
+.fchip.ok{background:var(--ok-soft);border-color:transparent}
+.fchip.ok .m{background:var(--ok);color:var(--surface)}
+.fchip b{display:block;font-size:13px}
+.fchip span{font-size:12px;color:var(--muted);word-break:break-word}
+tr.sel td{background:var(--accent-soft)}
+</style>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">Litigation Audit Desk<small>Reporting &amp; Audit · v0.1</small></div>
+    <nav class="nav" id="nav" aria-label="Etapas">
+      <button data-v="home">Quarters <span class="cnt" id="n-home"></span></button>
+      <button data-v="upload">Arquivos &amp; DataJud <span class="cnt" id="n-upload"></span></button>
+      <button data-v="lit">Litigation <span class="cnt" id="n-lit"></span></button>
+      <button data-v="inc">Inconsistências <span class="cnt" id="n-inc"></span></button>
+      <button data-v="case">Case Review <span class="cnt" id="n-case"></span></button>
+      <button data-v="close">Quarter Close <span class="cnt" id="n-close"></span></button>
+    </nav>
+    <div class="railfoot"><span>Motor de auditoria v<span id="ev"></span> · 26 regras</span><label class="f">Usuário (Validated By)<input type="text" id="user" autocomplete="off"></label></div>
+  </aside>
+  <main>
+    <div class="topbar" id="topbar"></div>
+    <div class="page" id="page"><div class="panel"><div class="bd"><p class="muted">Carregando base do quarter…</p></div></div></div>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script>
+/* ===== Litigation Audit Engine v0.1 : AUD-001..AUD-026 ===== */
+const ENGINE_VERSION = '0.1';
+const SEV = { C: 'Critical', R: 'Relevant', Q: 'Quality' };
+
+const RULES = [
+  { id:'AUD-001', sev:'C', block:true,  name:'Número CNJ inválido', src:['Excel','Word'],
+    se:'Número não tem 20 dígitos ou o dígito verificador (módulo 97, Res. CNJ 65/2008) não confere.',
+    entao:'Sinaliza o registro; não entra em nenhum cruzamento até ser corrigido.',
+    evid:'Número recebido, dígito calculado × informado.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-002', sev:'C', block:true,  name:'Processo duplicado', src:['Excel','Word'],
+    se:'O mesmo CNJ normalizado aparece em mais de uma linha do Excel ou em mais de um bloco do Word.',
+    entao:'Sinaliza todas as ocorrências; a população reportável não fecha até restar uma.',
+    evid:'Linhas/blocos em que o CNJ se repete.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-003', sev:'R', block:false, name:'CNJ × Plaintiff divergente', src:['Excel','Word'],
+    se:'Para o mesmo CNJ, o autor no Excel e o Plaintiff no Word têm similaridade de nome < 60%.',
+    entao:'Sinaliza possível troca de processo entre registros.',
+    evid:'Nome Excel × nome Word, % de similaridade.', acoes:['ACCEPT','KEEP','MANUAL'] },
+  { id:'AUD-004', sev:'R', block:false, name:'CNJ × Defendant divergente', src:['Excel','Word'],
+    se:'Empresa do Excel (Crop/Seeds) diverge da Defendant do Word.',
+    entao:'Sinaliza para confirmar a entidade ré reportada.',
+    evid:'Empresa Excel × Defendant Word.', acoes:['ACCEPT','KEEP','MANUAL'] },
+  { id:'AUD-005', sev:'R', block:false, name:'Ano CNJ × Filing Date incompatível', src:['Word','Excel'],
+    se:'Date of First Court Filing (Word) ≠ ano do CNJ, ou data de distribuição (Excel) em ano diferente do CNJ.',
+    entao:'Sinaliza campo de data para correção.',
+    evid:'Ano no CNJ, ano no Word, data no Excel.', acoes:['ACCEPT','MANUAL','JUSTIFIED'] },
+  { id:'AUD-006', sev:'C', block:true,  name:'Excel Stage × DataJud incompatível', src:['Excel','DataJud'],
+    se:'Posição atual do Excel é incompatível com o grau/movimentos do DataJud (ex.: 1ª instância no Excel com atividade em G2/TST posterior; Arquivado no Excel sem baixa no DataJud).',
+    entao:'Review Required: confirmar a fase.',
+    evid:'Posição Excel, graus e última movimentação por grau no DataJud.', acoes:['ACCEPT','KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-007', sev:'C', block:true,  name:'Word Stage × Excel Stage divergente', src:['Word','Excel'],
+    se:'Case Stage do Word, normalizado, não corresponde à posição atual do Excel (1ª inst.→Pending; 2ª/3ª→On Appeal; Execução→Enforcement; Acordo→Settlement; Arquivado→Completed).',
+    entao:'Sinaliza divergência entre documento e base.',
+    evid:'Stage Word × posição Excel.', acoes:['ACCEPT','KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-008', sev:'C', block:true,  name:'Stage × último andamento incompatível', src:['Word','DataJud'],
+    se:'Stage ativo, mas o último andamento relevante no DataJud é trânsito em julgado, baixa ou arquivamento; ou Completed com andamento substantivo posterior.',
+    entao:'Review Required.',
+    evid:'Stage, último andamento relevante e data.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-009', sev:'C', block:true,  name:'Risk mudou × Reserve não mudou', src:['Baseline','Excel'],
+    se:'Probabilidade de perda mudou em relação ao quarter anterior e o valor provisionado ficou igual.',
+    entao:'Review Required (não conclui erro de provisão).',
+    evid:'Risk anterior/atual, reserve anterior/atual.', acoes:['KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-010', sev:'C', block:true,  name:'Reserve mudou × nenhum evento', src:['Baseline','Excel','DataJud'],
+    se:'Provisão variou mais que a materialidade e não há andamento relevante no DataJud desde o último fechamento.',
+    entao:'Review Required: justificar a variação.',
+    evid:'Reserve anterior/atual, variação %, andamentos no período.', acoes:['KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-011', sev:'C', block:true,  name:'Evento relevante × Reserve não revisada', src:['DataJud','Excel'],
+    se:'Há sentença, acórdão, trânsito, execução, homologação de cálculos, pagamento, acordo ou baixa no DataJud depois do último fechamento e a provisão não mudou (ou não há baseline para comparar).',
+    entao:'Pergunta: "Foi identificado andamento processual relevante desde o último reporting. A provisão e/ou classificação de risco requer revisão?" → Review Required.',
+    evid:'Evento, data, grau; reserve anterior/atual.', acoes:['KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-012', sev:'C', block:true,  name:'Probable × Reserve vazia/zero', src:['Excel','Word'],
+    se:'Probabilidade Provável/Probable e valor provável/Loss Reserve vazio ou zero.',
+    entao:'Sinaliza; bloqueia fechamento.',
+    evid:'Risk e reserve em cada fonte.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-013', sev:'C', block:true,  name:'Completed × Reserve existente', src:['Excel','Word'],
+    se:'Caso encerrado (Excel Encerrado/Arquivado ou Word Completed) com provisão > 0.',
+    entao:'Sinaliza para baixa da provisão ou justificativa.',
+    evid:'Situação, stage, reserve.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-014', sev:'C', block:true,  name:'Completed × DataJud incompatível', src:['Excel','Word','DataJud'],
+    se:'Caso encerrado internamente, mas o DataJud não tem baixa/arquivamento ou tem movimento após a data de encerramento.',
+    entao:'Review Required.',
+    evid:'Data de encerramento, última movimentação DataJud.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-015', sev:'R', block:false, name:'BRL ÷ FX ≠ USD', src:['Word','Excel'],
+    se:'|BRL ÷ câmbio − USD| > 1% no Word, ou valor atualizado ÷ câmbio ≠ coluna USD no Excel.',
+    entao:'Sinaliza erro de conversão.',
+    evid:'BRL, câmbio, USD informado × calculado.', acoes:['ACCEPT','MANUAL','JUSTIFIED'] },
+  { id:'AUD-016', sev:'C', block:true,  name:'Cruzamento do threshold', src:['Excel','Baseline'],
+    se:'USD atual e USD anterior ficam em lados opostos do threshold (IN/OUT), ou flag "acima do threshold" não bate com o valor para caso ativo.',
+    entao:'Sinaliza Crossed Threshold IN/OUT; altera população reportável.',
+    evid:'USD anterior, USD atual, threshold, flag.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-017', sev:'C', block:true,  name:'Caso novo acima do threshold', src:['Excel','Word'],
+    se:'Caso marcado como Novo no quarter e acima do threshold.',
+    entao:'Confirma inclusão no relatório; se não estiver no Word, bloqueia.',
+    evid:'Status Novo, USD, presença no Word.', acoes:['ACCEPT','JUSTIFIED'] },
+  { id:'AUD-018', sev:'C', block:true,  name:'Caso sumiu sem justificativa', src:['Baseline','Excel','Word'],
+    se:'Reportado no quarter anterior e ausente no atual (nem no Word geral, nem no Closed Cases), sem encerramento ou ação justificada.',
+    entao:'Sinaliza; bloqueia fechamento.',
+    evid:'Status anterior, status atual, ação registrada.', acoes:['KEEP','JUSTIFIED'] },
+  { id:'AUD-019', sev:'R', block:false, name:'Variação material de valor', src:['Excel','Baseline'],
+    se:'Valor atualizado do pedido variou mais que a materialidade (padrão 20%) entre quarters.',
+    entao:'Sinaliza para conferência.',
+    evid:'Valor anterior, atual, variação %.', acoes:['KEEP','MANUAL','JUSTIFIED'] },
+  { id:'AUD-020', sev:'R', block:false, name:'Data impossível/inconsistente', src:['Word','Excel'],
+    se:'Data no texto do Status posterior ao fim do quarter ou anterior ao ano do CNJ; encerramento antes da distribuição; campo de data preenchido com texto de outro campo.',
+    entao:'Sinaliza para correção.',
+    evid:'Data encontrada e referência violada.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-021', sev:'R', block:false, name:'DataJud tem andamento após o Last Update', src:['Word','DataJud'],
+    se:'Último andamento relevante no DataJud é posterior ao fim do período indicado em Date of Last Update.',
+    entao:'Sugere texto em inglês com os andamentos relevantes; aceito ou editado, entra no Word como marca de revisão no Status Update.',
+    evid:'Last Update × data do andamento.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-022', sev:'C', block:true,  name:'Narrativa × campos estruturados', src:['Word'],
+    se:'O texto do Status indica trânsito, arquivamento, acordo ou pagamento e o Stage é ativo; ou Stage Completed com texto "awaiting/pending"; ou Closed Case com Stage ≠ Completed.',
+    entao:'Sinaliza incoerência no documento.',
+    evid:'Trecho do texto e Stage.', acoes:['MANUAL','KEEP','JUSTIFIED'] },
+  { id:'AUD-023', sev:'R', block:false, name:'Closed case permanece no General', src:['Word','Excel'],
+    se:'Caso Completed/encerrado aparece no General Report.',
+    entao:'Candidato a migração GENERAL → CLOSED.',
+    evid:'Stage, situação, ação do quarter.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-024', sev:'R', block:false, name:'Closed case reaparece', src:['Baseline','Excel','Word'],
+    se:'Caso encerrado/reportado como Closed no quarter anterior volta à população reportável.',
+    entao:'Sinaliza reabertura para confirmação.',
+    evid:'Status anterior (Closed), status atual.', acoes:['ACCEPT','KEEP','JUSTIFIED'] },
+  { id:'AUD-025', sev:'Q', block:false, name:'Campo obrigatório vazio', src:['Word'],
+    se:'Campo obrigatório do Word vazio ou ilegível (Lawsuit number, Stage, Relief BRL/USD, Risk, Filing, Last Update, Status, Loss Reserve quando Probable).',
+    entao:'Sinaliza para preenchimento.',
+    evid:'Campos vazios.', acoes:['MANUAL','JUSTIFIED'] },
+  { id:'AUD-026', sev:'R', block:false, name:'Mudança sem Track Changes', src:['Baseline','Word (.docx)'],
+    se:'Valor ou fase mudou entre quarters e o bloco do caso no .docx não tem marca de revisão (w:ins/w:del).',
+    entao:'Sinaliza alteração silenciosa.',
+    evid:'Campos alterados, nº de revisões no bloco.', acoes:['KEEP','JUSTIFIED'] },
+];
+const RULE = Object.fromEntries(RULES.map(r => [r.id, r]));
+
+/* ---------- helpers ---------- */
+const normCnj = s => { const d = String(s ?? '').replace(/\D/g, ''); return d || null; };
+const fmtCnj = d => d && d.length === 20 ? `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d[13]}.${d.slice(14,16)}.${d.slice(16)}` : (d || '—');
+function cnjValid(d) {
+  if (!d || d.length !== 20) return { ok:false, why:`${d ? d.length : 0} dígitos (esperado 20)` };
+  const n = BigInt(d.slice(0,7) + d.slice(9,13) + d[13] + d.slice(14,16) + d.slice(16) + '00');
+  const dv = 98n - (n % 97n);
+  const calc = String(dv).padStart(2,'0');
+  return calc === d.slice(7,9) ? { ok:true } : { ok:false, why:`DV informado ${d.slice(7,9)}, calculado ${calc}` };
+}
+const strip = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+function nameSim(a, b) {
+  const A = new Set(strip(a).split(' ').filter(w => w.length > 2 && !['dos','das','de','da','do'].includes(w)));
+  const B = new Set(strip(b).split(' ').filter(w => w.length > 2 && !['dos','das','de','da','do'].includes(w)));
+  if (!A.size || !B.size) return 1;
+  let i = 0; A.forEach(w => { if (B.has(w)) i++; });
+  return i / Math.min(A.size, B.size);
+}
+const num = x => (x === null || x === undefined || x === '' || isNaN(+x)) ? null : +x;
+const pct = (a, b) => (a && b) ? (b - a) / Math.abs(a) : null;
+
+function stageFromExcel(p) {
+  const s = strip(p);
+  if (!s) return null;
+  if (s.startsWith('1')) return 'PENDING';
+  if (s.startsWith('2') || s.startsWith('3') || s.includes('recursal')) return 'APPEAL';
+  if (s.includes('execu')) return 'ENFORCEMENT';
+  if (s.includes('acordo')) return 'SETTLEMENT';
+  if (s.includes('arquiv')) return 'COMPLETED';
+  if (s.includes('administ')) return 'PENDING';
+  return null;
+}
+function stageFromWord(t) {
+  const s = strip(t);
+  if (!s) return null;
+  if (s.includes('complet')) return 'COMPLETED';
+  if (s.includes('appeal')) return 'APPEAL';
+  if (s.includes('enforce') || s.includes('execution')) return 'ENFORCEMENT';
+  if (s.includes('settle')) return 'SETTLEMENT';
+  if (s.includes('pending') || s.includes('court') || s.includes('cort')) return 'PENDING';
+  return 'OTHER';
+}
+const STAGE_LABEL = { PENDING:'Action Pending in Court', APPEAL:'On Appeal', ENFORCEMENT:'Enforcement', SETTLEMENT:'Negotiated Settlement', COMPLETED:'Completed', OTHER:'(não padronizado)' };
+const RELEVANT = { transito:'Trânsito em julgado', baixa:'Baixa/Arquivamento', acordo:'Acordo', pagamento:'Pagamento/Levantamento', calculos:'Homologação/Liquidação', execucao:'Execução', acordao:'Acórdão', sentenca:'Sentença/Julgamento', recurso:'Recurso' };
+
+function quarterInfo(cid) { // 'Q3-2026'
+  const m = /Q(\d)-(\d{4})/.exec(cid || ''); if (!m) return null;
+  const q = +m[1], y = +m[2];
+  const endM = q * 3, start = `${y}-${String(endM - 2).padStart(2,'0')}-01`;
+  const end = new Date(Date.UTC(y, endM, 0)).toISOString().slice(0,10);
+  const prevEnd = new Date(Date.UTC(y, endM - 3, 0)).toISOString().slice(0,10);
+  return { q, y, start, end, prevEnd, prevId: q === 1 ? `Q4-${y-1}` : `Q${q-1}-${y}` };
+}
+function lastUpdateEnd(s) { // "2nd Quarter 2026"
+  const m = /(\d)\s*(st|nd|rd|th)?\s*quarter\s*(\d{4})/i.exec(s || ''); if (!m) return null;
+  const q = +m[1], y = +m[3];
+  return new Date(Date.UTC(y, q * 3, 0)).toISOString().slice(0,10);
+}
+
+/* DataJud: summary of one CNJ = array of instances (one per grau/tribunal) */
+function djSummary(inst) {
+  if (!inst || !inst.length) return null;
+  const all = [];
+  inst.forEach(i => (i.rel || []).forEach(r => all.push({ ...r, grau: i.grau, trib: i.trib })));
+  all.sort((a, b) => a.d < b.d ? -1 : 1);
+  const lastAny = inst.map(i => i.last && { ...i.last, grau: i.grau }).filter(Boolean).sort((a, b) => a.d < b.d ? -1 : 1).pop() || null;
+  const flags = {}; inst.forEach(i => Object.entries(i.flags || {}).forEach(([k, d]) => { if (!flags[k] || flags[k] < d) flags[k] = d; }));
+  const graus = [...new Set(inst.map(i => i.grau))];
+  const lastByGrau = {}; inst.forEach(i => { if (i.last && (!lastByGrau[i.grau] || lastByGrau[i.grau] < i.last.d)) lastByGrau[i.grau] = i.last.d; });
+  const lastRel = all[all.length - 1] || null;
+  const minAjuiz = inst.map(i => i.ajuiz).filter(Boolean).sort()[0] || null;
+  return { graus, lastAny, lastRel, rel: all, flags, lastByGrau, ajuiz: minAjuiz };
+}
+function djStage(s) {
+  if (!s) return null;
+  const f = s.flags, last = s.lastAny?.d || '';
+  if (f.baixa && f.baixa >= last.slice(0,10) && !['G2','SUP','GS'].some(g => (s.lastByGrau[g] || '') > f.baixa)) return 'COMPLETED';
+  if (f.execucao || f.calculos) {
+    const e = [f.execucao, f.calculos].filter(Boolean).sort().pop();
+    if (!f.baixa || e > f.baixa) return 'ENFORCEMENT';
+  }
+  const g1 = s.lastByGrau.G1 || '', g2 = s.lastByGrau.G2 || '', sup = s.lastByGrau.SUP || s.lastByGrau.GS || '';
+  if ((g2 || sup) && (g2 > g1 || sup > g1)) return 'APPEAL';
+  return 'PENDING';
+}
+
+
+/* Frase em inglês para o Status Update a partir dos andamentos relevantes do DataJud */
+const COURT = { G1: 'the Labor Court', G2: 'the Regional Labor Court', SUP: 'the Superior Labor Court (TST)', GS: 'the Superior Labor Court (TST)' };
+const PHRASE = {
+  sentenca: (c) => `${c} issued a judgment`,
+  acordao: (c) => `${c} ruled on the appeal`,
+  recurso: (c) => `an appeal was filed before ${c}`,
+  transito: () => 'the decision became final and binding',
+  execucao: () => 'the enforcement phase began',
+  calculos: () => 'the enforcement calculations were addressed by the court',
+  pagamento: () => 'a payment or release of funds was recorded',
+  acordo: () => 'a settlement was recorded in the case',
+  baixa: () => 'the case was archived',
+};
+function statusSentence(evs) {
+  const seen = new Set(), out = [];
+  for (const e of evs) {
+    const k = e.c + e.d; if (seen.has(k)) continue; seen.add(k);
+    const [y, m, d] = e.d.split('-');
+    const court = COURT[e.grau] || 'the court';
+    const txt = (PHRASE[e.c] || (() => e.n))(court);
+    out.push(`On ${m}/${d}/${y}, ${txt}.`);
+  }
+  return out.slice(-4).join(' ');
+}
+
+/* ---------- main ---------- */
+function runAudit(ctx) {
+  // ctx: {cycleId, params:{threshold, fx, materiality, fxTol}, excel:[], word:[], dj:{cnj:[inst]}, baseline:{cnj:row}|null, baselineClosed:Set, docxRev:{cnj:n}|null}
+  const P = Object.assign({ threshold: 125000, fx: 5.70, materiality: 0.20, fxTol: 0.01, wordScope: ['Crop'] }, ctx.params || {});
+  const Q = quarterInfo(ctx.cycleId);
+  const issues = [];
+  const add = (rid, cnj, o) => issues.push(Object.assign({ key: `${rid}_${cnj || o.ref || 'x'}${o.suffix ? '_' + o.suffix : ''}`, rule: rid, sev: RULE[rid].sev, block: RULE[rid].block, cnj }, o));
+
+  const ex = ctx.excel || [], wd = ctx.word || [];
+  const exBy = {}; ex.forEach((r, i) => { r._i = i; (exBy[r.cnj] = exBy[r.cnj] || []).push(r); });
+  const wdGen = wd.filter(w => w.kind === 'general'), wdClosed = wd.filter(w => w.kind === 'closed');
+  const wdBy = {}; wdGen.forEach(w => { (wdBy[w.cnj] = wdBy[w.cnj] || []).push(w); });
+  const closedBy = {}; wdClosed.forEach(w => { closedBy[w.cnj] = w; });
+  const base = ctx.baseline || null;
+
+  // population = reportable now or before, or present in any Word
+  const inPop = r => r.repCur === 'Sim' || r.repPrev === 'Sim' || (r.litCur && r.litCur !== 'NÃO ENTRA');
+  const pop = new Set();
+  ex.forEach(r => { if (inPop(r)) pop.add(r.cnj); });
+  wd.forEach(w => w.cnj && pop.add(w.cnj));
+
+  const scope = new Set(P.wordScope || ['Crop']);
+  const inScope = r => scope.has(r.empresa);
+  const plaintiffOf = c => (exBy[c]?.[0]?.autor) || (wdBy[c]?.[0]?.plaintiff) || (closedBy[c]?.plaintiff) || '';
+
+  // AUD-001 (all Excel rows + Word)
+  ex.forEach(r => { const v = cnjValid(r.cnj); if (!v.ok) add('AUD-001', r.cnj, { ref: 'ex' + r._i, field: 'Lawsuit Number', excel: r.cnjRaw, reason: v.why, action: 'Corrigir o número na base (linha ' + (r._i + 3) + ').' }); });
+  wd.forEach((w, i) => { const v = cnjValid(w.cnj); if (!v.ok) add('AUD-001', w.cnj, { ref: 'wd' + i, suffix: 'w' + i, field: 'Lawsuit Number', plaintiff: w.plaintiff, word: w.lawsuit || '(vazio)', reason: `Word (${w.caseName}): ${w.lawsuit ? v.why : 'campo vazio'}`, action: 'Preencher/corrigir o Lawsuit number no Word.' }); });
+  // AUD-002
+  Object.entries(exBy).forEach(([c, rs]) => { if (c && rs.length > 1) add('AUD-002', c, { field: 'Lawsuit Number', reason: `CNJ aparece ${rs.length}× no Excel (linhas ${rs.map(r => r._i + 3).join(', ')}).`, action: 'Manter uma linha e registrar a exclusão.' }); });
+  Object.entries(wdBy).forEach(([c, ws]) => { if (c && c !== 'null' && ws.length > 1) add('AUD-002', c, { suffix: 'w', field: 'Lawsuit Number', reason: `CNJ aparece ${ws.length}× no Word geral (${ws.map(w => w.caseName).join(' / ')}).`, action: 'Remover o bloco duplicado do Word.' }); });
+  const wdNames = {}; wdGen.forEach(w => { const k = strip(w.caseName); (wdNames[k] = wdNames[k] || []).push(w); });
+  Object.values(wdNames).forEach(ws => { if (ws.length > 1 && new Set(ws.map(w => w.cnj)).size > 1) ws.forEach(w => { /* same name, different CNJs: informative only */ }); });
+
+  for (const c of pop) {
+    if (!c) continue;
+    const r = exBy[c]?.[0] || null, w = wdBy[c]?.[0] || null, cl = closedBy[c] || null;
+    const W = w || cl;
+    const pl = plaintiffOf(c);
+    const inst = ctx.dj?.[c] || null, S = djSummary(inst);
+    const b = base?.[c] || null;
+    const cnjYear = c.length === 20 ? +c.slice(9,13) : null;
+    const exStage = r ? stageFromExcel(r.posicao) : null;
+    const wStage = W ? stageFromWord(W.stage) : null;
+    const closedInternal = r && (r.situacao === 'Encerrado' || exStage === 'COMPLETED');
+    const common = { plaintiff: pl };
+
+    // AUD-003
+    if (r && W && r.autor && W.plaintiff) { const s = nameSim(r.autor, W.plaintiff); if (s < 0.6) add('AUD-003', c, { ...common, field: 'Plaintiff', excel: r.autor, word: W.plaintiff, reason: `Similaridade de nome ${(s * 100).toFixed(0)}%.`, action: 'Confirmar se o CNJ pertence a este autor.' }); }
+    // AUD-004
+    if (r && W && W.defendant) {
+      const isSeeds = /seeds|sementes/i.test(W.defendant), exSeeds = r.empresa === 'Seeds';
+      if (isSeeds !== exSeeds) add('AUD-004', c, { ...common, field: 'Defendant', excel: `${r.empresa} · ${r.reu || ''}`, word: W.defendant, reason: `Excel indica ${r.empresa}; Word reporta "${W.defendant}".`, action: 'Confirmar a entidade ré e o relatório (Crop/Seeds).' });
+    }
+    // AUD-005
+    if (cnjYear) {
+      const wy = W && /\b(19|20)\d{2}\b/.exec(W.filing || '')?.[0];
+      if (wy && +wy !== cnjYear) add('AUD-005', c, { ...common, field: 'Date of First Court Filing', excel: r?.distrib, word: W.filing, reason: `CNJ é de ${cnjYear}; Word informa ${wy}.`, action: `Ajustar Filing para ${cnjYear}.`, suggested: String(cnjYear) });
+      else if (r?.distrib && +r.distrib.slice(0,4) !== cnjYear && Math.abs(+r.distrib.slice(0,4) - cnjYear) > 0) add('AUD-005', c, { ...common, suffix: 'x', field: 'Data de distribuição', excel: r.distrib, reason: `CNJ é de ${cnjYear}; distribuição no Excel em ${r.distrib.slice(0,4)}.`, action: 'Conferir data de distribuição.' });
+    }
+    // AUD-006
+    if (r && S) {
+      const d = djStage(S);
+      let bad = null;
+      if (exStage === 'PENDING' && (d === 'APPEAL' || d === 'ENFORCEMENT' || d === 'COMPLETED')) bad = d;
+      else if (exStage === 'APPEAL' && (d === 'ENFORCEMENT' || d === 'COMPLETED')) bad = d;
+      else if (exStage === 'COMPLETED' && d !== 'COMPLETED') bad = d;
+      else if (exStage === 'ENFORCEMENT' && d === 'COMPLETED') bad = d;
+      if (bad) add('AUD-006', c, { ...common, field: 'Case Stage', excel: r.posicao, datajud: STAGE_LABEL[bad] + ` (graus: ${S.graus.join(', ')})`, latest: S.lastAny && `${S.lastAny.d} · ${S.lastAny.n} (${S.lastAny.grau})`, reason: `Excel em "${r.posicao}", DataJud indica ${STAGE_LABEL[bad]}.`, action: 'Review Required: confirmar a fase atual.', suggested: STAGE_LABEL[bad] });
+    }
+    // AUD-007
+    if (r && w && exStage && wStage && exStage !== wStage) add('AUD-007', c, { ...common, field: 'Case Stage', excel: r.posicao, word: w.stage, reason: `Word "${w.stage}" × Excel "${r.posicao}" (esperado ${STAGE_LABEL[exStage]}).`, action: 'Alinhar Stage do Word com a base.', suggested: STAGE_LABEL[exStage] });
+    // AUD-008
+    if (W && S && S.lastRel) {
+      const lr = S.lastRel, active = wStage && wStage !== 'COMPLETED';
+      if (active && ['transito', 'baixa'].includes(lr.c) && lr.c === (Object.entries(S.flags).sort((a, b) => a[1] < b[1] ? 1 : -1)[0] || [])[0]) add('AUD-008', c, { ...common, field: 'Case Stage', word: W.stage, datajud: `${RELEVANT[lr.c]} em ${lr.d}`, latest: `${lr.d} · ${lr.n} (${lr.grau})`, reason: `Stage ativo, mas último andamento relevante é ${RELEVANT[lr.c]}.`, action: 'Review Required: avaliar encerramento.' });
+      if (wStage === 'COMPLETED' && ['sentenca', 'acordao', 'recurso', 'execucao'].includes(lr.c) && (!S.flags.baixa || lr.d > S.flags.baixa)) add('AUD-008', c, { ...common, suffix: 'c', field: 'Case Stage', word: W.stage, latest: `${lr.d} · ${lr.n}`, reason: 'Completed, mas há andamento substantivo posterior à baixa.', action: 'Review Required.' });
+    }
+    // AUD-009 / AUD-010 (need baseline)
+    if (b && r) {
+      const riskChanged = b.prob && r.prob && b.prob !== r.prob;
+      const rb = num(b.vProv) || 0, rc = num(r.vProv) || 0;
+      if (riskChanged && rb === rc) add('AUD-009', c, { ...common, field: 'Loss Reserve', prev: `${b.prob} · BRL ${fmtN(rb)}`, excel: `${r.prob} · BRL ${fmtN(rc)}`, reason: 'Risco mudou e provisão ficou igual.', action: 'Review Required.' });
+      const v = pct(rb, rc);
+      if (rb && v !== null && Math.abs(v) > P.materiality && S && !S.rel.some(x => x.d > Q.prevEnd && x.c !== 'recurso')) add('AUD-010', c, { ...common, field: 'Loss Reserve', prev: `BRL ${fmtN(rb)}`, excel: `BRL ${fmtN(rc)}`, reason: `Provisão variou ${(v * 100).toFixed(0)}% sem andamento relevante no DataJud desde ${Q.prevEnd}.`, action: 'Justificar a variação.' });
+    }
+    // AUD-011
+    if (S && Q) {
+      const ev = S.rel.filter(x => x.d > Q.prevEnd && x.c !== 'recurso');
+      if (ev.length) {
+        const rb = b ? (num(b.vProv) || 0) : null, rc = r ? (num(r.vProv) || 0) : null;
+        if (rb === null || rb === rc) { const e = ev[ev.length - 1]; add('AUD-011', c, { ...common, field: 'Loss Reserve / Risk', excel: r ? `${r.prob} · BRL ${fmtN(rc)}` : null, prev: b ? `BRL ${fmtN(rb)}` : '(sem baseline)', datajud: ev.map(x => `${x.d} ${RELEVANT[x.c]}`).slice(-3).join(' · '), latest: `${e.d} · ${e.n} (${e.grau})`, reason: 'Foi identificado andamento processual relevante desde o último reporting. A provisão e/ou classificação de risco requer revisão?', action: 'Review Required.' }); }
+      }
+    }
+    // AUD-012
+    if (r && r.prob === 'Provável' && !(num(r.vProv) > 0) && inPop(r)) add('AUD-012', c, { ...common, field: 'Loss Reserve', excel: `Provável · valor provável ${fmtN(num(r.vProv))}`, reason: 'Excel: Provável sem valor provável.', action: 'Informar a provisão ou rever o risco.' });
+    if (W && /probable/i.test(W.risk || '') && !(W.reserveN > 0)) add('AUD-012', c, { ...common, suffix: 'w', field: 'Loss Reserve', word: `${W.risk} · ${W.reserve || '(vazio)'}`, excel: r ? `${r.prob} · BRL ${fmtN(num(r.vProv))}` : null, reason: 'Word: Probable sem Loss Reserve.', action: 'Preencher Loss Reserve no Word.', suggested: r && num(r.vProv) ? `BRL ${fmtN(num(r.vProv))}` : null });
+    // AUD-013
+    const wCompleted = wStage === 'COMPLETED';
+    if ((closedInternal || wCompleted) && ((r && num(r.vProv) > 0) || (W && W.reserveN > 0))) add('AUD-013', c, { ...common, field: 'Loss Reserve', excel: r ? `${r.situacao} · ${r.posicao} · BRL ${fmtN(num(r.vProv))}` : null, word: W ? `${W.stage} · ${W.reserve || ''}` : null, reason: 'Caso encerrado com provisão.', action: 'Baixar provisão ou justificar.' });
+    // AUD-014
+    if ((closedInternal || wCompleted) && S) {
+      const enc = r?.encerramento || null;
+      if (!S.flags.baixa && !S.flags.transito) add('AUD-014', c, { ...common, field: 'Case Stage', excel: r ? `${r.situacao} ${enc || ''}` : null, word: W?.stage, datajud: 'Sem baixa/arquivamento/trânsito', latest: S.lastAny && `${S.lastAny.d} · ${S.lastAny.n}`, reason: 'Encerrado internamente, sem baixa no DataJud.', action: 'Review Required.' });
+      else if (enc && S.lastAny && S.lastAny.d > enc && !['baixa','transito'].includes(S.lastRel?.c)) add('AUD-014', c, { ...common, suffix: 'p', field: 'Case Stage', excel: `Encerrado em ${enc}`, latest: `${S.lastAny.d} · ${S.lastAny.n}`, reason: 'Há movimentação após a data de encerramento.', action: 'Review Required.' });
+    }
+    // AUD-015
+    if (W && W.reliefBRLn && W.reliefUSDn) {
+      const fx = W.fxN || P.fx, calc = W.reliefBRLn / fx;
+      if (Math.abs(calc - W.reliefUSDn) / calc > P.fxTol) add('AUD-015', c, { ...common, field: 'Financial Relief USD', word: `BRL ${fmtN(W.reliefBRLn)} ÷ ${fx} → USD ${fmtN(W.reliefUSDn)}`, reason: `USD informado ${fmtN(W.reliefUSDn)}; calculado ${fmtN(calc)} (${(((W.reliefUSDn - calc) / calc) * 100).toFixed(1)}%).`, action: 'Recalcular USD.', suggested: `USD ${fmtN(calc)}` });
+    }
+    if (W && r && W.reliefBRLn && num(r.valorCur) && Math.abs(W.reliefBRLn - r.valorCur) / r.valorCur > P.fxTol && inPop(r) && r.repCur === 'Sim') add('AUD-015', c, { ...common, suffix: 'b', field: 'Financial Relief BRL', excel: `BRL ${fmtN(r.valorCur)}`, word: `BRL ${fmtN(W.reliefBRLn)}`, reason: 'Valor do pedido no Word difere do valor atualizado no Excel.', action: 'Atualizar o Word com o valor da base.', suggested: `BRL ${fmtN(r.valorCur)}` });
+    if (r && num(r.valorCur) && num(r.usdCur) && Math.abs(r.valorCur / P.fx - r.usdCur) / (r.valorCur / P.fx) > P.fxTol) add('AUD-015', c, { ...common, suffix: 'x', field: 'USD (Excel)', excel: `${fmtN(r.valorCur)} → USD ${fmtN(r.usdCur)}`, reason: `Câmbio implícito ${(r.valorCur / r.usdCur).toFixed(4)} ≠ ${P.fx}.`, action: 'Recalcular coluna USD.' });
+    // AUD-016
+    if (r) {
+      const u0 = b ? num(b.usdCur) : num(r.usdPrev), u1 = num(r.usdCur);
+      const active = r.situacao !== 'Encerrado';
+      if (u0 !== null && u1 !== null && active) {
+        if (u0 < P.threshold && u1 >= P.threshold) add('AUD-016', c, { ...common, field: 'Materialidade', prev: `USD ${fmtN(u0)}`, excel: `USD ${fmtN(u1)}`, reason: `Crossed Threshold – IN (USD ${fmtN(P.threshold)}).`, action: 'Incluir na população reportável.' , tag: 'IN' });
+        if (u0 >= P.threshold && u1 < P.threshold) add('AUD-016', c, { ...common, field: 'Materialidade', prev: `USD ${fmtN(u0)}`, excel: `USD ${fmtN(u1)}`, reason: `Crossed Threshold – OUT (USD ${fmtN(P.threshold)}).`, action: 'Confirmar saída do relatório.', tag: 'OUT' });
+      }
+      if (u1 !== null && active && (u1 >= P.threshold) !== (r.acimaCur === 'Sim')) add('AUD-016', c, { ...common, suffix: 'f', field: 'Flag acima do threshold', excel: `USD ${fmtN(u1)} · flag "${r.acimaCur}" · ${r.prob}`, reason: `Valor ${u1 >= P.threshold ? 'acima' : 'abaixo'} de USD ${fmtN(P.threshold)} e flag "${r.acimaCur}".`, action: u1 >= P.threshold ? 'Confirmar se deve entrar no Litigation.' : 'Confirmar critério de inclusão.' });
+    }
+    // AUD-017
+    if (r && /novo/i.test(r.statusCur || '') && num(r.usdCur) >= P.threshold) add('AUD-017', c, { ...common, field: 'População', excel: `${r.statusCur} · USD ${fmtN(r.usdCur)} · ${r.litCur}`, word: w ? 'Presente no Word' : (inScope(r) ? 'AUSENTE no Word' : `Relatório ${r.empresa} não carregado`), reason: w ? 'Caso novo acima do threshold: confirmar narrativa e campos.' : (inScope(r) ? 'Caso novo acima do threshold não está no Word.' : 'Caso novo acima do threshold; confirmar no relatório ' + r.empresa + '.'), action: w ? 'Validar inclusão.' : 'Incluir no Word.' });
+    // AUD-018
+    if (r && inScope(r) && (b ? b.repCur === 'Sim' : r.repPrev === 'Sim') && !w && !cl) {
+      const just = /encerr|retirar/i.test(r.achCur || '') || /encerr/i.test(r.litCur || '');
+      const stillRep = r.repCur === 'Sim';
+      if (!just) add('AUD-018', c, { ...common, field: 'População', prev: `Reportado (${r.relPrev || r.litPrev})`, excel: `${r.repCur} · ${r.litCur} · ação: ${r.achCur}`, word: 'Ausente', reason: stillRep ? 'A base manda reportar (e reportou no quarter anterior), mas o caso não está no Word geral nem no Closed.' : 'Saiu da população reportável sem encerramento ou ação justificada.', action: stillRep ? 'Reincluir no Word ou justificar.' : 'Justificar a saída.' });
+    }
+    // AUD-019
+    if (r && inPop(r)) {
+      const v0 = b ? num(b.valorCur) : num(r.valorPrev), v1 = num(r.valorCur), v = pct(v0, v1);
+      if (v !== null && Math.abs(v) > P.materiality) add('AUD-019', c, { ...common, field: 'Financial Relief BRL', prev: `BRL ${fmtN(v0)}`, excel: `BRL ${fmtN(v1)}`, reason: `Variação de ${(v * 100).toFixed(0)}% entre quarters.`, action: 'Conferir cálculo/atualização.' });
+    }
+    // AUD-020
+    if (W && Q) {
+      const ds = [...(W.status || '').matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g)].map(m => `${m[3]}-${m[1]}-${m[2]}`);
+      const fut = ds.filter(d => d > Q.end), old = cnjYear ? ds.filter(d => +d.slice(0,4) < cnjYear) : [];
+      const badMD = [...(W.status || '').matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g)].filter(m => +m[1] > 12 || +m[2] > 31).map(m => m[0]);
+      if (fut.length || old.length || badMD.length) add('AUD-020', c, { ...common, field: 'Status Update (datas)', word: [...fut.map(d => d + ' (após ' + Q.end + ')'), ...old.map(d => d + ` (antes do CNJ ${cnjYear})`), ...badMD.map(d => d + ' (formato dd/mm; relatório usa mm/dd)')].join('; '), reason: 'Data impossível no texto do Status.', action: 'Corrigir a data na narrativa.' });
+      if (/^(possible|probable|remote)$/i.test((W.estCompletion || '').trim())) add('AUD-020', c, { ...common, suffix: 'e', field: 'Estimated Date of Case Completion', word: W.estCompletion, reason: 'Campo de data preenchido com classificação de risco.', action: 'Preencher com data ou "Uncertain".' });
+    }
+    if (r && r.encerramento && r.distrib && r.encerramento < r.distrib) add('AUD-020', c, { ...common, suffix: 'x', field: 'Datas (Excel)', excel: `distrib ${r.distrib} · enc ${r.encerramento}`, reason: 'Encerramento anterior à distribuição.', action: 'Corrigir datas.' });
+    // AUD-021
+    if (W && S && S.lastRel) {
+      const lu = lastUpdateEnd(W.lastUpdate);
+      // corte: o mais recente entre o fim do Last Update e a última data já narrada no Status
+      const narr = [...(W.status || '').matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g)].map((m) => (+m[1] <= 12 ? `${m[3]}-${m[1]}-${m[2]}` : `${m[3]}-${m[2]}-${m[1]}`)).filter((d) => !Q || d <= Q.end).sort().pop() || '';
+      const cut = [lu || '', narr].sort().pop();
+      if (lu && S.lastRel.d > cut) {
+        const evs = S.rel.filter((x) => x.d > cut);
+        add('AUD-021', c, { ...common, field: 'Status Update', word: W.lastUpdate, datajud: evs.slice(-4).map((x) => `${x.d} ${RELEVANT[x.c]}`).join(' · '), latest: `${S.lastRel.d} · ${S.lastRel.n} (${S.lastRel.grau})`, reason: `DataJud tem ${evs.length} andamento(s) relevante(s) após ${cut} (Last Update ${lu}; última data narrada ${narr || '—'}).`, action: 'Inserir no Status Update como marca de revisão (texto sugerido; edite em Manual correction).', suggested: statusSentence(evs) });
+      }
+    }
+    // AUD-022
+    if (W) {
+      const t = W.status || '';
+      const endHit = /final and binding|res judicata became|became final|archiv|settlement (was|has been) (reached|approved|ratified)|agreement (was|has been) (approved|ratified|homologated)|dismissed the enforcement|case (was|is) closed/i.exec(t);
+      const negated = endHit && /\b(no|not|without)\s+$/i.test(t.slice(Math.max(0, endHit.index - 8), endHit.index));
+      if (endHit && !negated && wStage && !['COMPLETED', 'SETTLEMENT'].includes(wStage)) add('AUD-022', c, { ...common, field: 'Case Stage × Status', word: `Stage "${W.stage}" · texto: "…${t.slice(Math.max(0, endHit.index - 50), endHit.index + 60).trim()}…"`, reason: 'Narrativa indica encerramento/acordo e o Stage está ativo.', action: 'Alinhar Stage ou narrativa.' });
+      if (wStage === 'COMPLETED' && /currently awaiting|awaiting (further|the)|pending (judgment|decision)/i.test(t.slice(-300))) add('AUD-022', c, { ...common, suffix: 'a', field: 'Case Stage × Status', word: `Stage Completed · final do texto: "${t.slice(-120)}"`, reason: 'Completed com narrativa de pendência.', action: 'Alinhar Stage ou narrativa.' });
+      if (W.kind === 'closed' && wStage !== 'COMPLETED') add('AUD-022', c, { ...common, suffix: 'k', field: 'Case Stage', word: `Closed Cases · Stage "${W.stage}"`, reason: 'Caso no relatório de Closed Cases com Stage diferente de Completed.', action: 'Ajustar Stage para Completed.', suggested: 'Completed' });
+    }
+    // AUD-023
+    if (w && (wStage === 'COMPLETED' || closedInternal)) add('AUD-023', c, { ...common, field: 'Relatório', excel: r ? `${r.situacao} · ${r.litCur} · ${r.achCur}` : null, word: `General · ${w.stage}`, reason: 'Caso encerrado ainda no General Report.', action: 'Migrar GENERAL → CLOSED.', suggested: 'CLOSED' });
+    // AUD-024
+    const wasClosed = ctx.baselineClosed ? ctx.baselineClosed.has(c) : (r && /encerrado/i.test(r.litPrev || ''));
+    if (wasClosed && (w || (r && r.repCur === 'Sim' && !/encerr/i.test(r.litCur || '')))) add('AUD-024', c, { ...common, field: 'Relatório', prev: `Closed (${r?.litPrev || 'quarter anterior'})`, excel: r ? `${r.repCur} · ${r.litCur}` : null, word: w ? 'Presente no General' : null, reason: 'Caso encerrado no quarter anterior voltou à população.', action: 'Confirmar reabertura.' });
+    // AUD-025
+    if (W) {
+      const req = [['lawsuit', 'Lawsuit number'], ['stage', 'Case Stage'], ['reliefBRL', 'Relief BRL'], ['reliefUSD', 'Relief USD'], ['risk', 'Risk of loss'], ['filing', 'First Court Filing'], ['lastUpdate', 'Last Update'], ['status', 'Status Update'], ['venue', 'Venue']];
+      const miss = req.filter(([k]) => !String(W[k] || '').replace(/BRL|USD|\s|\.|:/gi, '').trim()).map(x => x[1]);
+      if (/^\s*BR\s*$/i.test(W.reserve || '')) miss.push('Loss Reserve ("BR")');
+      if (miss.length) add('AUD-025', c, { ...common, field: miss.join(', '), word: `${W.kind === 'closed' ? 'Closed' : 'General'} · ${W.caseName}`, reason: 'Campos obrigatórios vazios/ilegíveis.', action: 'Preencher.' });
+    }
+    // AUD-026
+    if (ctx.docxRev && w && r) {
+      const changed = (num(r.valorPrev) && num(r.valorCur) && Math.abs(pct(num(r.valorPrev), num(r.valorCur))) > 0.001) || (b && b.posicao !== r.posicao);
+      const rev = ctx.docxRev[c];
+      if (changed && rev !== undefined && rev === 0) add('AUD-026', c, { ...common, field: 'Track Changes', prev: `BRL ${fmtN(num(r.valorPrev))}`, excel: `BRL ${fmtN(num(r.valorCur))}`, word: '0 marcas de revisão no bloco', reason: 'Mudança entre quarters sem marca de revisão.', action: 'Aplicar Track Changes no Word.' });
+    }
+  }
+  // de-dup keys
+  const seen = new Set();
+  return issues.filter(i => seen.has(i.key) ? false : (seen.add(i.key), true));
+}
+function fmtN(v) { if (v === null || v === undefined || isNaN(v)) return '—'; return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+if (typeof module !== 'undefined') module.exports = { ENGINE_VERSION, statusSentence, RULES, RULE, runAudit, cnjValid, djSummary, djStage, quarterInfo, fmtCnj, stageFromExcel, stageFromWord, STAGE_LABEL, RELEVANT, lastUpdateEnd, fmtN };
+
+/* ===== Reconhecimento do modelo da planilha ===== */
+const TPL = (() => {
+// Reconhece o MODELO da base de Litigation (planilha do escritório) e mapeia
+// cada coluna para um campo do sistema, sem depender da posição da coluna.
+//
+// Como funciona:
+// 1) acha a linha de cabeçalho (a planilha tem uma linha de totais antes dela);
+// 2) acha a coluna do processo pelo nome (numero_processo / número do processo /
+//    CNJ / lawsuit number) e, se o nome mudar, pela coluna em que a maioria dos
+//    valores tem formato de número CNJ (20 dígitos);
+// 3) descobre os quarters citados nos cabeçalhos (ex.: "Q2/2025", "Q3.2026") e
+//    separa as colunas do quarter ATUAL e do ANTERIOR;
+// 4) lê do próprio cabeçalho parâmetros do modelo: threshold ("ACIMA DE 125K?")
+//    e câmbio ("DOLAR 5,70 Q3/2026").
+
+const norm = (s) =>
+  String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+const QRE = /\bq\s?([1-4])\s?[\.\/\-]?\s?(20\d{2})\b/i;
+const quarterOf = (h) => {
+  const m = QRE.exec(h || "");
+  return m ? { q: +m[1], y: +m[2], id: `Q${m[1]}-${m[2]}` } : null;
+};
+
+// Campos do sistema. `when` recebe o cabeçalho normalizado; `period`:
+//   "cur"  = coluna do quarter atual, "prev" = do quarter anterior, null = sem quarter.
+const FIELDS = [
+  { key: "cnj", label: "Número do processo (CNJ)", required: true, when: (h) => /^(numero[_ ]?(do )?processo|n[ºo°]? ?processo|processo|cnj|lawsuit ?number)$/.test(h) },
+  { key: "empresa", label: "Empresa (Crop/Seeds)", required: true, when: (h) => h === "empresa" },
+  { key: "statusPrev", label: "Status do quarter anterior", period: "prev", when: (h) => /^(status|comparativo)\b/.test(h) },
+  { key: "statusCur", label: "Status do quarter atual (Novo/Andamento/Encerrado)", period: "cur", when: (h) => /^(status|comparativo)\b/.test(h) },
+  { key: "repPrev", label: "Reportar no Litigation (anterior)", period: "prev", when: (h) => /^reportar/.test(h) },
+  { key: "repCur", label: "Reportar no Litigation (atual)", required: true, period: "cur", when: (h) => /^reportar/.test(h) },
+  { key: "litPrev", label: "Classificação Litigation (anterior)", period: "prev", when: (h) => /^litigation\b/.test(h) },
+  { key: "litCur", label: "Classificação Litigation (atual)", period: "cur", when: (h) => /^litigation\b/.test(h) },
+  { key: "cod", label: "Código interno", when: (h) => h === "cod_processo" },
+  { key: "situacao", label: "Situação", required: true, when: (h) => h === "situacao" },
+  { key: "natureza", label: "Natureza", when: (h) => h === "natureza" },
+  { key: "tipo", label: "Tipo de processo", when: (h) => h === "tipo_processo" },
+  { key: "posicao", label: "Posição atual (fase)", required: true, when: (h) => h === "posicao_atual" },
+  { key: "distrib", label: "Data de distribuição", date: true, when: (h) => h === "data_distribuicao" },
+  { key: "entrada", label: "Data de entrada", date: true, when: (h) => h === "data_entrada" },
+  { key: "encerramento", label: "Data de encerramento", date: true, when: (h) => h === "data_encerramento" },
+  { key: "motivoEnc", label: "Motivo do encerramento", when: (h) => h === "motivo_encerramento" },
+  { key: "vara", label: "Vara / competência", when: (h) => h === "competencia_originaria" },
+  { key: "comarca", label: "Comarca/UF", when: (h) => h === "comarca_uf" },
+  { key: "objetos", label: "Objetos da ação", when: (h) => h === "objetos_acao" },
+  { key: "autor", label: "Autor (Plaintiff)", required: true, when: (h) => h === "autor" },
+  { key: "reu", label: "Réu (Defendant)", when: (h) => h === "reu" },
+  { key: "outras", label: "Outras partes", when: (h) => h === "outras_partes" },
+  { key: "contratacao", label: "Tipo de contratação", when: (h) => h === "tipo_contratacao" },
+  { key: "funcao", label: "Função", when: (h) => h === "funcao" },
+  { key: "valorOrig", label: "Valor do pedido original", num: true, when: (h) => h === "valor_do_pedido_original" },
+  { key: "acimaPrev", label: "Acima do threshold? (anterior)", period: "prev", when: (h) => /^acima de/.test(h) },
+  { key: "acimaCur", label: "Acima do threshold? (atual)", period: "cur", when: (h) => /^acima de/.test(h) },
+  { key: "valorPrev", label: "Valor atualizado BRL (anterior)", num: true, period: "prev", when: (h) => /^valor_do_pedido_atualizado\b/.test(h) },
+  { key: "valorCur", label: "Valor atualizado BRL (atual)", required: true, num: true, period: "cur", when: (h) => /^valor_do_pedido_atualizado\b/.test(h) },
+  { key: "usdPrev", label: "Valor USD (anterior)", num: true, period: "prev", when: (h) => /^dolar\b/.test(h) },
+  { key: "usdCur", label: "Valor USD (atual)", required: true, num: true, period: "cur", when: (h) => /^dolar\b/.test(h) },
+  { key: "dataAtual", label: "Data de atualização", date: true, when: (h) => h === "data_atualizacao" },
+  { key: "prob", label: "Probabilidade de perda", required: true, when: (h) => /^probabilidade/.test(h) },
+  { key: "vProv", label: "Valor provável (Loss Reserve)", required: true, num: true, when: (h) => /^valor_provavel/.test(h) },
+  { key: "vPoss", label: "Valor possível", num: true, when: (h) => /^valor_possivel/.test(h) },
+  { key: "vRem", label: "Valor remoto", num: true, when: (h) => /^valor_remoto/.test(h) },
+  { key: "garantia", label: "Garantias (total)", num: true, when: (h) => h === "valor_historico_total_garantias_oferecidas" },
+  { key: "relPrev", label: "Relatório (anterior)", period: "prev", when: (h) => /^relatorio\b/.test(h) },
+  { key: "relCur", label: "Relatório (atual)", period: "cur", when: (h) => /^relatorio\b/.test(h) },
+  { key: "achPrev", label: "Ação no reporting (anterior)", period: "prev", when: (h) => /^ach\b/.test(h) },
+  { key: "achCur", label: "Ação no reporting (atual)", period: "cur", when: (h) => /^ach\b/.test(h) },
+];
+
+const onlyDigits = (v) => String(v ?? "").replace(/\D/g, "");
+const looksCnj = (v) => onlyDigits(v).length === 20 && /\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}/.test(String(v).replace(/\s/g, ""));
+
+function findHeaderRow(rows) {
+  let best = { idx: 0, score: -1 };
+  const limit = Math.min(rows.length, 15);
+  for (let i = 0; i < limit; i++) {
+    const hs = (rows[i] || []).map(norm);
+    let score = 0;
+    for (const h of hs) if (h && FIELDS.some((f) => f.when(h))) score++;
+    if (score > best.score) best = { idx: i, score };
+  }
+  return best;
+}
+
+function colLetter(n) {
+  let s = "";
+  n++;
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function excelDate(v) {
+  if (v === null || v === undefined || v === "" || v === "-") return null;
+  const s = String(v).trim();
+  if (/^\d{4,5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(+s) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  let m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return m[0];
+  return null;
+}
+function toNum(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s || s === "-") return null;
+  if (/^-?\d+(\.\d+)?(e-?\d+)?$/i.test(s)) return +s;
+  const br = s.replace(/[^\d,.\-]/g, "");
+  if (/,\d{1,2}$/.test(br)) return +br.replace(/\./g, "").replace(",", ".");
+  const n = +br.replace(/,/g, "");
+  return isNaN(n) ? null : n;
+}
+const clean = (v) => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s === "" || s === "-" ? null : s;
+};
+
+/**
+ * @param rows  array de linhas (arrays) como devolvido por parseXlsx
+ * @param opts  { cycleId?: "Q3-2026" }  força qual quarter é o atual
+ */
+function mapModel(rows, opts = {}) {
+  const warnings = [];
+  const { idx: hIdx, score } = findHeaderRow(rows);
+  const headers = (rows[hIdx] || []).map((h) => String(h ?? ""));
+  const H = headers.map(norm);
+  if (score < 5) warnings.push("Não reconheci o cabeçalho do modelo com segurança: confira o mapeamento abaixo.");
+
+  // quarters presentes nos cabeçalhos
+  const qs = {};
+  H.forEach((h) => { const q = quarterOf(h); if (q) qs[q.id] = q; });
+  const qList = Object.values(qs).sort((a, b) => a.y * 10 + a.q - (b.y * 10 + b.q));
+  let cur = opts.cycleId ? qs[opts.cycleId] || quarterOf(opts.cycleId.replace("-", "/")) : qList[qList.length - 1];
+  if (opts.cycleId && !qs[opts.cycleId]) warnings.push(`A planilha não cita ${opts.cycleId} nos cabeçalhos; quarters encontrados: ${qList.map((q) => q.id).join(", ") || "nenhum"}.`);
+  const curId = cur ? cur.id : null;
+
+  const map = {}; // key -> column index
+  const used = new Set();
+  for (const f of FIELDS) {
+    for (let i = 0; i < H.length; i++) {
+      if (used.has(i) || !H[i] || !f.when(H[i])) continue;
+      const q = quarterOf(H[i]);
+      if (f.period === "cur" && !(q && q.id === curId)) continue;
+      if (f.period === "prev" && q && q.id === curId) continue;
+      if (f.period === "prev" && !q && !/^dolar/.test(H[i])) continue;
+      if (!f.period && q && f.key !== "cnj") { /* colunas sem período podem ter data no nome */ }
+      map[f.key] = i; used.add(i);
+      if (f.period === "prev" && q && cur && !(q.y * 10 + q.q < cur.y * 10 + cur.q)) warnings.push(`Coluna "${headers[i]}" foi tratada como quarter anterior, mas cita ${q.id}.`);
+      break;
+    }
+  }
+
+  // "Status - Q2.2025" é o anterior; "Comparativo - Q3.2026" o atual; sem quarter não entra.
+  // Coluna do processo: se o nome não foi reconhecido, procura pelo formato CNJ.
+  let cnjBy = "cabeçalho";
+  if (map.cnj === undefined) {
+    let best = { i: -1, share: 0 };
+    for (let i = 0; i < headers.length; i++) {
+      let n = 0, ok = 0;
+      for (let r = hIdx + 1; r < Math.min(rows.length, hIdx + 201); r++) {
+        const v = rows[r] && rows[r][i];
+        if (v === undefined || v === null || String(v).trim() === "") continue;
+        n++; if (looksCnj(v)) ok++;
+      }
+      const share = n ? ok / n : 0;
+      if (share > best.share) best = { i, share };
+    }
+    if (best.share >= 0.6) { map.cnj = best.i; cnjBy = `formato CNJ (${Math.round(best.share * 100)}% dos valores)`; }
+  }
+
+  // parâmetros lidos do próprio modelo
+  const params = {};
+  const acimaH = map.acimaCur !== undefined ? headers[map.acimaCur] : null;
+  const t = acimaH && /acima de\s*([\d.,]+)\s*(k|mil)?/i.exec(norm(acimaH));
+  if (t) params.threshold = toNum(t[1]) * (t[2] ? 1000 : 1);
+  const usdH = map.usdCur !== undefined ? headers[map.usdCur] : null;
+  const fx = usdH && /(\d+[.,]\d+)/.exec(usdH);
+  if (fx) params.fx = +fx[1].replace(",", ".");
+  // cabeçalho de USD anterior com quarter diferente do anterior esperado
+  if (map.usdPrev !== undefined && map.valorPrev !== undefined) {
+    const a = quarterOf(H[map.usdPrev]), b = quarterOf(H[map.valorPrev]);
+    if (a && b && a.id !== b.id) warnings.push(`Cabeçalho "${headers[map.usdPrev]}" cita ${a.id}, mas o valor BRL anterior é ${b.id}: provável erro de digitação no modelo.`);
+  }
+
+  const missing = FIELDS.filter((f) => f.required && map[f.key] === undefined).map((f) => f.label);
+  if (missing.length) warnings.push("Campos obrigatórios não encontrados: " + missing.join(", ") + ".");
+
+  // linhas
+  const records = [];
+  for (let r = hIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    if (!row.some((v) => clean(v))) continue;
+    const rec = { _row: r + 1 };
+    for (const f of FIELDS) {
+      const i = map[f.key];
+      if (i === undefined) continue;
+      const v = row[i];
+      rec[f.key] = f.date ? excelDate(v) : f.num ? toNum(v) : clean(v);
+    }
+    rec.cnjRaw = rec.cnj;
+    rec.cnj = onlyDigits(rec.cnj) || null;
+    if (!rec.cnjRaw && !rec.autor) continue;
+    records.push(rec);
+  }
+
+  const mapping = FIELDS.map((f) => ({
+    key: f.key, label: f.label, required: !!f.required,
+    col: map[f.key] !== undefined ? colLetter(map[f.key]) : null,
+    header: map[f.key] !== undefined ? headers[map[f.key]] : null,
+    how: f.key === "cnj" && map.cnj !== undefined ? cnjBy : undefined,
+  }));
+  const unmapped = headers.map((h, i) => ({ col: colLetter(i), header: h })).filter((x, i) => x.header && !used.has(i) && i !== map.cnj);
+
+  return {
+    headerRow: hIdx + 1,
+    headers,
+    cycleId: curId,
+    quarters: qList.map((q) => q.id),
+    params,
+    mapping,
+    unmapped,
+    warnings,
+    processColumn: map.cnj !== undefined ? { col: colLetter(map.cnj), header: headers[map.cnj], how: cnjBy } : null,
+    records,
+  };
+}
+
+return { mapModel, FIELDS, excelDate, toNum, norm, colLetter };
+
+})();
+
+/* ===== Resumo de retorno do DataJud ===== */
+const DJ = (() => {
+// Sincronização em lote com a API Pública do DataJud para a população do quarter.
+// Usa o callDataJud do server.js (mesma chave e mesmo cliente HTTP).
+// Para cada CNJ consulta o índice do tribunal de origem e, na Justiça do
+// Trabalho, também o TST: o mesmo número pode ter uma instância por grau.
+
+const CATS = [
+  ["transito", /tr[aâ]nsito em julgado/i],
+  ["baixa", /baixa definitiva|arquivamento|arquivad/i],
+  ["acordo", /homologa[cç][aã]o de transa|acordo|concilia[cç][aã]o/i],
+  ["pagamento", /pagamento|levantamento|libera[cç][aã]o de (valor|dep)/i],
+  ["calculos", /homologa[cç][aã]o.*c[aá]lcul|liquida[cç][aã]o/i],
+  ["execucao", /execu[cç][aã]o/i],
+  ["acordao", /provimento|ac[oó]rd[aã]o|conhecimento em parte|n[aã]o conhecimento|n[aã]o-conhecimento/i],
+  ["sentenca", /proced[eê]ncia|improced[eê]ncia|extin[cç][aã]o|julgamento|senten[cç]a|resolu[cç][aã]o do m[eé]rito/i],
+  ["recurso", /recurso|agravo|embargos/i],
+];
+const classify = (n) => { for (const [k, re] of CATS) if (re.test(n || "")) return k; return null; };
+
+function summarize(src) {
+  const mv = (src.movimentos || []).filter((m) => m.dataHora).sort((a, b) => (a.dataHora < b.dataHora ? -1 : 1));
+  const rel = mv.map((m) => ({ d: m.dataHora.slice(0, 10), n: m.nome, c: classify(m.nome) })).filter((m) => m.c);
+  const flags = {};
+  rel.forEach((m) => { flags[m.c] = m.d; });
+  const last = mv[mv.length - 1];
+  return {
+    trib: src.tribunal, grau: src.grau, classe: src.classe && src.classe.nome, orgao: src.orgaoJulgador && src.orgaoJulgador.nome,
+    ajuiz: (src.dataAjuizamento || "").slice(0, 8), upd: (src.dataHoraUltimaAtualizacao || "").slice(0, 10), nMov: mv.length,
+    last: last ? { d: last.dataHora.slice(0, 10), n: last.nome } : null,
+    rel, flags,
+    recent: mv.slice(-12).map((m) => ({ d: m.dataHora.slice(0, 10), n: m.nome })),
+  };
+}
+
+return { summarize, classify };
+})();
+
+/* ===== Word (.docx): leitura e Track Changes no navegador (JSZip) ===== */
+const DOCX = (() => {
+const unesc = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+
+// texto "aceito": inclui inserções, ignora exclusões (w:delText)
+function cellText(xml) {
+  return xml
+    .split(/<\/w:p>/)
+    .map((p) => [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => unesc(m[1])).join(""))
+    .filter((t) => t.trim())
+    .join(" ")
+    .replace(/ /g, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+const revCount = (xml) => (xml.match(/<w:(ins|del)\b[^>]*>/g) || []).length;
+
+const LABELS = [
+  ["case name", "caseName"], ["plaintiff", "plaintiff"], ["defendant", "defendant"], ["venue", "venue"],
+  ["type of matter", "matter"], ["lawsuit number", "lawsuit"], ["case description", "status"], ["case stage", "stage"],
+  ["financial relief sought (local", "reliefBRL"], ["financial relief sought (usd", "reliefUSD"], ["exchange rate", "fx"],
+  ["loss reserve", "reserve"], ["likelihood", "risk"], ["date of first court filing", "filing"], ["estimated date", "estCompletion"],
+  ["actual date", "actualCompletion"], ["comments of case reporter", "comments"], ["this report has been submitted", "submittedBy"],
+  ["date of last update", "lastUpdate"], ["management", "mgmt"], ["contacts", "contacts"],
+];
+const labelKey = (s) => {
+  const t = s.toLowerCase().replace(/\s+/g, " ").trim();
+  for (const [p, k] of LABELS) if (t.startsWith(p)) return k;
+  return null;
+};
+
+
+function money(s) {
+  if (!s) return null;
+  const m = /([\d.,]*\d)/.exec(String(s).replace(/\s/g, ""));
+  if (!m) return null;
+  let x = m[1];
+  if (x.includes(",") && x.lastIndexOf(",") > x.lastIndexOf(".")) x = x.replace(/\./g, "").replace(",", ".");
+  else x = x.replace(/,/g, "");
+  const n = parseFloat(x);
+  return isNaN(n) ? null : n;
+}
+const fxNum = (s) => { const m = /(\d+[.,]\d+)/.exec(s || ""); return m ? +m[1].replace(",", ".") : null; };
+
+function enrich(rec) {
+  rec.cnj = String(rec.lawsuit || "").replace(/\D/g, "") || null;
+  rec.reliefBRLn = money(rec.reliefBRL);
+  rec.reliefUSDn = money(rec.reliefUSD);
+  rec.reserveN = money(rec.reserve);
+  rec.fxN = fxNum(rec.fx);
+  return rec;
+}
+
+
+  async function parseReport(buf, kind) {
+    const zip = await JSZip.loadAsync(buf);
+    const f = zip.file("word/document.xml");
+    if (!f) throw new Error("Não encontrei word/document.xml dentro do arquivo.");
+    const xml = await f.async("string");
+    const head = cellText(xml.slice(0, 60000)).slice(0, 4000);
+    const scope = /\bseeds\b/i.test(head) && !/\bcrop\b/i.test(head) ? "Seeds" : "Crop";
+  const records = [];
+  for (const tm of xml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)) {
+    const tbl = tm[0];
+    const rec = { kind, rev: revCount(tbl), revFields: [] };
+    let isCase = false;
+    for (const rm of tbl.matchAll(/<w:tr[\s>][\s\S]*?<\/w:tr>/g)) {
+      const cells = [...rm[0].matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((c) => c[0]);
+      if (cells.length < 2) continue;
+      const key = labelKey(cellText(cells[0]));
+      if (!key) continue;
+      if (key === "caseName") isCase = true;
+      if (rec[key] === undefined) {
+        rec[key] = cellText(cells.slice(1).join(""));
+        if (revCount(cells.slice(1).join(""))) rec.revFields.push(key);
+      }
+    }
+    if (isCase) records.push(enrich(rec));
+  }
+    return { scope, records };
+  }
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  async function applyTrackChanges(buf, changes, author) {
+    const zip = await JSZip.loadAsync(buf);
+    let xml = await zip.file("word/document.xml").async("string");
+  const when = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  let rid = 900000;
+  const applied = [], seen = new Set();
+  xml = xml.replace(/<w:tbl>[\s\S]*?<\/w:tbl>/g, (tbl) => {
+    let cnj = null, caseName = "";
+    for (const rm of tbl.matchAll(/<w:tr[\s>][\s\S]*?<\/w:tr>/g)) {
+      const cs = [...rm[0].matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((c) => c[0]);
+      if (cs.length < 2) continue;
+      const k = labelKey(cellText(cs[0]));
+      if (k === "lawsuit") cnj = cellText(cs.slice(1).join("")).replace(/\D/g, "");
+      if (k === "caseName") caseName = cellText(cs.slice(1).join(""));
+    }
+    const ch = cnj && changes[cnj];
+    if (!ch) return tbl;
+    seen.add(cnj);
+    return tbl.replace(/<w:tr[\s>][\s\S]*?<\/w:tr>/g, (tr) => {
+      const cells = [...tr.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((c) => c[0]);
+      if (cells.length < 2) return tr;
+      const key = labelKey(cellText(cells[0]));
+      if (!key || ch[key] === undefined) return tr;
+      const cell = cells[1];
+      const val = ch[key];
+      if (val && typeof val === "object" && val.append) {
+        // inserção ao final do texto existente (ex.: novo andamento no Status Update)
+        const runs = cell.match(/<w:rPr>[\s\S]*?<\/w:rPr>/g) || [];
+        const rPrA = runs.length ? runs[runs.length - 1] : "";
+        const insA = `<w:ins w:id="${rid++}" w:author="${esc(author)}" w:date="${when}"><w:r>${rPrA}<w:t xml:space="preserve"> ${esc(val.append)}</w:t></w:r></w:ins>`;
+        const at = cell.lastIndexOf("</w:p>");
+        if (at < 0) return tr;
+        applied.push({ cnj, caseName, field: key, from: "", to: "+ " + val.append });
+        return tr.replace(cell, cell.slice(0, at) + insA + cell.slice(at));
+      }
+      const from = cellText(cell), to = String(val);
+      if (from.replace(/\s+/g, " ").trim() === to.trim()) return tr;
+      const tcPr = (/<w:tcPr>[\s\S]*?<\/w:tcPr>/.exec(cell) || [""])[0];
+      const pPr = (/<w:pPr>[\s\S]*?<\/w:pPr>/.exec(cell) || [""])[0];
+      const rPr = (/<w:rPr>[\s\S]*?<\/w:rPr>/.exec(cell.replace(/<w:pPr>[\s\S]*?<\/w:pPr>/, "")) || [""])[0];
+      const del = from ? `<w:del w:id="${rid++}" w:author="${esc(author)}" w:date="${when}"><w:r>${rPr}<w:delText xml:space="preserve">${esc(from)}</w:delText></w:r></w:del>` : "";
+      const ins = `<w:ins w:id="${rid++}" w:author="${esc(author)}" w:date="${when}"><w:r>${rPr}<w:t xml:space="preserve">${esc(to)}</w:t></w:r></w:ins>`;
+      const newCell = `<w:tc>${tcPr}<w:p>${pPr}${del}${ins}</w:p></w:tc>`;
+      applied.push({ cnj, caseName, field: key, from, to });
+      return tr.replace(cell, newCell);
+    });
+  });
+    zip.file("word/document.xml", xml);
+    const data = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+    return { data, applied, missing: Object.keys(changes).filter((c) => !seen.has(c)) };
+  }
+  return { parseReport, applyTrackChanges };
+})();
+
+/* ===== Serviço do Litigation Audit Desk no navegador (db + downloads + user) ===== */
+const SVC = (() => {
+  const DEFAULT_PARAMS = { threshold: 125000, fx: 5.7, materiality: 0.2, fxTol: 0.01, wordScope: ["Crop"], djScope: "population" };
+  const DECISIONS = { ACCEPT: "Accept external data", KEEP: "Keep internal data", MANUAL: "Manual correction", JUSTIFIED: "Justified exception" };
+  const RISK_EN = { "Provável": "Probable", "Possível": "Possible", "Remota": "Remote" };
+  const ORD = ["1st", "2nd", "3rd", "4th"];
+  const fmtBR = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const idRe = /^Q([1-4])-(\d{4})$/;
+  const prevId = (id) => { const m = idRe.exec(id); const q = +m[1], y = +m[2]; return q === 1 ? `Q4-${y - 1}` : `Q${q - 1}-${y}`; };
+  const nowIso = () => new Date().toISOString();
+
+  let db = null, userCap = null, dl = null, me = { id: null, name: "" };
+  const MEM = {}; // cid -> {cycle, excel, word:[], dj, decisions, raw:{}}
+  const cache = {};
+
+  async function init() {
+    if (window.claude && window.claude.use) {
+      [db, userCap, dl] = await Promise.all([claude.use("db"), claude.use("user"), claude.use("downloads")]);
+    }
+    if (userCap) {
+      try {
+        const m = await userCap.me();
+        me.id = m && m.id ? m.id : (userCap.id ? await userCap.id() : null);
+        me.name = (m && m.name) || "";
+        if (!me.name && me.id) { const ps = await userCap.profiles([me.id]); me.name = (ps[me.id] && ps[me.id].name) || ""; }
+      } catch (e) {}
+    }
+    return { db: !!db, downloads: !!dl, user: me };
+  }
+  const need = () => { if (!db) throw new Error("A base compartilhada não está disponível nesta visualização. Abra o link do artefato no Claude."); };
+
+  /* ---------- chunks ---------- */
+  async function putChunks(cid, prefix, arr, maxBytes = 170000) {
+    need();
+    const chunks = []; let cur = [], size = 2;
+    for (const it of arr) {
+      const s = JSON.stringify(it).length + 1;
+      if (cur.length && size + s > maxBytes) { chunks.push(cur); cur = []; size = 2; }
+      cur.push(it); size += s;
+    }
+    if (cur.length || !chunks.length) chunks.push(cur);
+    for (let i = 0; i < chunks.length; i++) await db.doc(`cycles/${cid}/data/${prefix}-${i}`).set({ i, rows: chunks[i] });
+    return chunks.length;
+  }
+  async function getChunks(cid, prefix, n) {
+    const out = [];
+    const snaps = await Promise.all(Array.from({ length: n || 0 }, (_, i) => db.doc(`cycles/${cid}/data/${prefix}-${i}`).get()));
+    snaps.forEach((s) => { if (s.exists) out.push(...(s.data().rows || [])); });
+    return out;
+  }
+  async function putB64(cid, prefix, b64) {
+    const parts = []; for (let i = 0; i < b64.length; i += 180000) parts.push(b64.slice(i, i + 180000));
+    for (let i = 0; i < parts.length; i++) await db.doc(`cycles/${cid}/data/${prefix}-${i}`).set({ i, rows: [parts[i]] });
+    return parts.length;
+  }
+  const getB64 = async (cid, prefix, n) => (await getChunks(cid, prefix, n)).join("");
+  const toB64 = (buf) => { let s = ""; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+  const fromB64 = (b64) => { const s = atob(b64); const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; };
+
+  async function saveCycle(c) { need(); c.updatedAt = nowIso(); await db.doc(`cycles/${c.id}`).set(JSON.parse(JSON.stringify(c))); if (MEM[c.id]) MEM[c.id].cycle = c; return c; }
+  async function getCycle(id) { need(); const s = await db.doc(`cycles/${id}`).get(); return s.exists ? s.data() : null; }
+  async function trail(c, entry) {
+    const e = Object.assign({ ts: nowIso(), quarter: c.id, userId: me.id || null }, entry);
+    try { await db.collection(`cycles/${c.id}/trail`).add(e); } catch (err) { console.warn(err); }
+    if (MEM[c.id] && MEM[c.id].trail) MEM[c.id].trail.push(e);
+    return e;
+  }
+  async function readTrail(cid) {
+    const m = MEM[cid];
+    if (m && m.trail) return m.trail;
+    const s = await db.collection(`cycles/${cid}/trail`).orderBy("ts").limit(1000).get();
+    const t = s.docs.map((d) => d.data());
+    if (m) m.trail = t;
+    return t;
+  }
+
+  async function load(cid, force) {
+    if (MEM[cid] && !force) return MEM[cid];
+    const c = await getCycle(cid);
+    if (!c) throw new Error(`Quarter ${cid} não existe.`);
+    const I = c.inputs || {};
+    const m = { cycle: c, excel: [], word: [], dj: null, decisions: {}, trail: null };
+    if (I.excel) m.excel = await getChunks(cid, "excel", I.excel.chunks);
+    for (const w of I.wordGeneral || []) m.word.push(...(await getChunks(cid, `wg-${w.scope}`, w.chunks)));
+    if (I.wordClosed) m.word.push(...(await getChunks(cid, "wc", I.wordClosed.chunks)));
+    if (c.datajud) {
+      const rows = await getChunks(cid, "dj", c.datajud.chunks);
+      const results = {}; rows.forEach((r) => { results[r.k] = r.v; });
+      m.dj = { results, notFound: c.datajud.notFoundList || [], errors: [], unroutable: [] };
+    }
+    const ds = await db.collection(`cycles/${cid}/decisions`).get();
+    ds.docs.forEach((d) => { m.decisions[d.id] = d.data(); });
+    MEM[cid] = m;
+    return m;
+  }
+
+  async function baselineFor(cid) {
+    const prev = await getCycle(prevId(cid)).catch(() => null);
+    if (prev && prev.status === "CLOSED" && prev.closed && prev.closed.validatedChunks) {
+      const recs = await getChunks(prev.id, "validated", prev.closed.validatedChunks);
+      const baseline = {}; recs.forEach((r) => { baseline[r.cnj] = r; });
+      return { baseline, baselineClosed: new Set(prev.closed.closedReport || []), from: `${prev.id} fechado em ${prev.closed.at.slice(0, 10)} (base validada)` };
+    }
+    return { baseline: null, baselineClosed: null, from: "Colunas do quarter anterior na própria planilha" };
+  }
+
+  async function ctxOf(cid) {
+    const m = await load(cid);
+    const c = m.cycle;
+    const stamp = c.updatedAt + "|" + Object.keys(m.decisions).length;
+    if (cache[cid] && cache[cid].stampData === c.updatedAt) { cache[cid].m = m; return cache[cid]; }
+    const B = await baselineFor(cid);
+    const scopes = new Set((c.inputs.wordGeneral || []).map((w) => w.scope));
+    const docxRev = {}; let hasRev = false;
+    m.word.forEach((w) => { if (w.kind === "general" && w.rev !== undefined && w.cnj) docxRev[w.cnj] = w.rev; if (w.kind === "general" && w.rev > 0) hasRev = true; });
+    const params = Object.assign({}, DEFAULT_PARAMS, c.params, { wordScope: scopes.size ? [...scopes] : (c.params && c.params.wordScope) || ["Crop"] });
+    const ctx = { cycleId: cid, params, excel: m.excel, word: m.word, dj: m.dj ? m.dj.results : {}, baseline: B.baseline, baselineClosed: B.baselineClosed, docxRev: hasRev ? docxRev : null };
+    const issues = c.inputs.excel ? runAudit(ctx) : [];
+    cache[cid] = { stampData: c.updatedAt, ctx, issues, baselineFrom: B.from, djMeta: m.dj, m };
+    return cache[cid];
+  }
+  const invalidate = (cid) => { delete cache[cid]; };
+
+  const withDecisions = (m, issues) => issues.map((i) => { const d = m.decisions[safeKey(i.key)]; return Object.assign({}, i, { status: d ? "Validated" : "Open", decision: d || null, ruleName: RULE[i.rule].name, allowed: RULE[i.rule].acoes }); });
+  const safeKey = (k) => String(k).replace(/[^A-Za-z0-9_\-.~:@+]/g, "_").slice(0, 190);
+
+  function thrClass(r, P, base) {
+    const u1 = r.usdCur, u0 = base ? base.usdCur : r.usdPrev;
+    if (u1 === null || u1 === undefined) return "—";
+    const a1 = u1 >= P.threshold;
+    if (u0 !== null && u0 !== undefined) { const a0 = u0 >= P.threshold; if (a1 && !a0) return "Crossed Threshold – IN"; if (!a1 && a0) return "Crossed Threshold – OUT"; }
+    return a1 ? "Above Threshold" : "Below Threshold";
+  }
+  function stats(L, issues) {
+    const s = { total: issues.length, open: 0, blocking: 0, bySev: { C: { open: 0, done: 0 }, R: { open: 0, done: 0 }, Q: { open: 0, done: 0 } }, byRule: {} };
+    for (const i of issues) {
+      const open = i.status === "Open";
+      s.bySev[i.sev][open ? "open" : "done"]++;
+      if (open) s.open++;
+      if (open && i.block) s.blocking++;
+      const r = (s.byRule[i.rule] = s.byRule[i.rule] || { open: 0, done: 0 });
+      r[open ? "open" : "done"]++;
+    }
+    s.cases = L.ctx.excel.length;
+    s.reportable = L.ctx.excel.filter((r) => r.repCur === "Sim").length;
+    return s;
+  }
+  const statusOf = (c, st) => (c.status === "CLOSED" ? "CLOSED" : !c.inputs.excel ? "AWAITING INPUT" : st.blocking === 0 ? "READY TO CLOSE" : "OPEN");
+
+  function populationCnjs(ctx) {
+    const cnjs = new Set();
+    ctx.excel.forEach((r) => { if (r.repCur === "Sim" || r.repPrev === "Sim" || (r.litCur && r.litCur !== "NÃO ENTRA")) cnjs.add(r.cnj); });
+    ctx.word.forEach((w) => w.cnj && cnjs.add(w.cnj));
+    return [...cnjs].filter(Boolean);
+  }
+  function population(L) {
+    const { ctx } = L, P = ctx.params;
+    const words = {}; ctx.word.forEach((w) => { if (w.cnj) (words[w.cnj] = words[w.cnj] || []).push(w); });
+    const exBy = {}; ctx.excel.forEach((r) => { if (!exBy[r.cnj]) exBy[r.cnj] = r; });
+    const nf = new Set((L.djMeta && L.djMeta.notFound) || []);
+    return populationCnjs(ctx).map((cnj) => {
+      const r = exBy[cnj] || {}, ws = words[cnj] || [], S = djSummary(ctx.dj[cnj]);
+      const g = ws.find((w) => w.kind === "general"), cl = ws.find((w) => w.kind === "closed");
+      return {
+        cnj, cnjFmt: fmtCnj(cnj), autor: r.autor || (g || cl || {}).plaintiff || (g || cl || {}).caseName, empresa: r.empresa || "—",
+        posicao: r.posicao || null, wordStage: g ? g.stage : cl ? cl.stage : null,
+        report: g ? "General" : cl ? "Closed" : r.repCur === "Sim" ? ((P.wordScope || []).includes(r.empresa) ? "Não está no Word" : `Word ${r.empresa} não carregado`) : "—",
+        repCur: r.repCur || null, statusCur: r.statusCur || null, prob: r.prob || null, vProv: r.vProv ?? null, valorCur: r.valorCur ?? null, usdCur: r.usdCur ?? null,
+        thr: r.cnj ? thrClass(r, P, ctx.baseline && ctx.baseline[cnj]) : "—",
+        djFound: !!S, djLast: S && S.lastAny ? S.lastAny : null, djLastRel: S && S.lastRel ? { d: S.lastRel.d, n: S.lastRel.n, c: RELEVANT[S.lastRel.c] } : null,
+        djNotFound: nf.has(cnj),
+      };
+    });
+  }
+  function summarizeInputs(c) {
+    const i = c.inputs || {};
+    return {
+      excel: i.excel ? { name: i.excel.name, at: i.excel.at, by: i.excel.by, rows: i.excel.rows, processColumn: i.excel.processColumn, headerRow: i.excel.headerRow, warnings: i.excel.warnings } : null,
+      wordGeneral: (i.wordGeneral || []).map((w) => ({ name: w.name, at: w.at, by: w.by, scope: w.scope, records: w.records, withRevisions: w.withRevisions })),
+      wordClosed: i.wordClosed ? { name: i.wordClosed.name, at: i.wordClosed.at, records: i.wordClosed.records } : null,
+    };
+  }
+
+  /* ---------- API ---------- */
+  function meta() { return { engine: ENGINE_VERSION, rules: RULES, decisions: DECISIONS, dataDir: "Base compartilhada deste artefato", user: me.name || "", defaults: DEFAULT_PARAMS }; }
+
+  async function cycles() {
+    if (!db) return { cycles: [] };
+    const s = await db.collection("cycles").get();
+    const list = [];
+    for (const d of s.docs) {
+      const c = d.data();
+      let st = null;
+      try { const L = await ctxOf(c.id); st = stats(L, withDecisions(L.m, L.issues)); } catch (e) { console.warn(e); }
+      list.push({ id: c.id, status: st ? statusOf(c, st) : c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, inputs: summarizeInputs(c), datajud: c.datajud || null, stats: st, closed: c.closed || null });
+    }
+    list.sort((a, b) => { const k = (x) => x.id.slice(3) + x.id[1]; return k(a) < k(b) ? 1 : -1; });
+    return { cycles: list };
+  }
+
+  async function createCycle(b) {
+    need();
+    const id = String(b.id || "").toUpperCase().trim();
+    if (!idRe.test(id)) throw new Error("Use o formato Q4-2026.");
+    if (await getCycle(id)) throw new Error(`${id} já existe.`);
+    const prev = await getCycle(prevId(id));
+    const params = Object.assign({}, DEFAULT_PARAMS, prev ? prev.params : {}, b.params || {});
+    const c = await saveCycle({ id, status: "OPEN", createdAt: nowIso(), createdBy: b.user || me.name, createdById: me.id, params, inputs: { wordGeneral: [] }, baselineOf: prev ? prev.id : null });
+    await trail(c, { source: "Sistema", reason: `Novo ciclo aberto${prev ? ` (baseline: ${prev.id}, status ${prev.status})` : ""}`, user: c.createdBy });
+    return { cycle: c };
+  }
+
+  async function cycle(id) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    const issues = withDecisions(L.m, L.issues);
+    const st = stats(L, issues);
+    return { cycle: Object.assign({}, c, { status: statusOf(c, st) }), stats: st, inputs: summarizeInputs(c), mapping: c.inputs.excel ? c.inputs.excel.mapping : null, baselineFrom: L.baselineFrom, job: null, params: L.ctx.params, djMeta: L.djMeta ? { notFound: L.djMeta.notFound || [], errors: [], unroutable: [] } : null, request: c.djRequest || null };
+  }
+  async function audit(id) {
+    const L = await ctxOf(id);
+    const issues = withDecisions(L.m, L.issues);
+    const st = stats(L, issues);
+    return { status: statusOf(L.m.cycle, st), stats: st, issues, cases: population(L) };
+  }
+
+  async function upload(id, kind, file, user) {
+    need();
+    const m = await load(id);
+    const c = m.cycle;
+    if (c.status === "CLOSED") throw new Error("Quarter fechado: não aceita novos arquivos.");
+    const buf = await file.arrayBuffer();
+    const by = user || me.name;
+    if (kind === "excel") {
+      if (!/\.xlsx$/i.test(file.name)) throw new Error("Envie a base em .xlsx.");
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+      const mm = TPL.mapModel(rows, { cycleId: id });
+      if (!mm.processColumn) throw new Error("Não encontrei a coluna do número do processo nem por nome nem pelo formato CNJ.");
+      const chunks = await putChunks(id, "excel", mm.records);
+      const rawChunks = await putB64(id, "excel-raw", toB64(buf));
+      c.inputs.excel = { name: file.name, at: nowIso(), by, rows: mm.records.length, processColumn: mm.processColumn, headerRow: mm.headerRow, warnings: mm.warnings, detectedParams: mm.params, mapping: mm.mapping, chunks, rawChunks, sheet: wb.SheetNames[0] };
+      if (mm.params.threshold && !c.paramsLocked) c.params.threshold = mm.params.threshold;
+      if (mm.params.fx && !c.paramsLocked) c.params.fx = mm.params.fx;
+      m.excel = mm.records;
+      await saveCycle(c); invalidate(id);
+      await trail(c, { source: "Upload", field: "Excel do quarter", new: file.name, reason: `${mm.records.length} processos; coluna do processo ${mm.processColumn.col} (${mm.processColumn.how})`, user: by });
+      const L = await ctxOf(id);
+      const pend = populationCnjs(L.ctx).filter((x) => x.length === 20);
+      await requestDataJud(id, "population", by, true);
+      return { ok: true, mapping: mm.mapping, processColumn: mm.processColumn, headerRow: mm.headerRow, warnings: mm.warnings, rows: mm.records.length, params: mm.params, population: pend.length };
+    }
+    if (kind === "word-general" || kind === "word-closed") {
+      if (!/\.docx$/i.test(file.name)) throw new Error("Envie o relatório em .docx.");
+      const rep = await DOCX.parseReport(buf, kind === "word-general" ? "general" : "closed");
+      if (!rep.records.length) throw new Error("Não encontrei casos no Word (tabelas com Case Name / Lawsuit number).");
+      rep.records.forEach((r) => { r.scope = rep.scope; });
+      const prefix = kind === "word-general" ? `wg-${rep.scope}` : "wc";
+      const chunks = await putChunks(id, prefix, rep.records, 150000);
+      const rawChunks = await putB64(id, prefix + "-raw", toB64(buf));
+      const info = { name: file.name, at: nowIso(), by, scope: rep.scope, records: rep.records.length, withRevisions: rep.records.filter((r) => r.rev > 0).length, chunks, rawChunks };
+      if (kind === "word-general") c.inputs.wordGeneral = [...(c.inputs.wordGeneral || []).filter((w) => w.scope !== rep.scope), info];
+      else c.inputs.wordClosed = info;
+      m.word = m.word.filter((w) => (kind === "word-general" ? !(w.kind === "general" && (w.scope || "Crop") === rep.scope) : w.kind !== "closed"));
+      rep.records.forEach((r) => m.word.push(r));
+      await saveCycle(c); invalidate(id);
+      await trail(c, { source: "Upload", field: kind === "word-general" ? `Word General (${rep.scope})` : "Word Closed Cases", new: file.name, reason: `${rep.records.length} casos`, user: by });
+      return { ok: true, info };
+    }
+    throw new Error("Tipo de arquivo não reconhecido.");
+  }
+
+  async function setParams(id, b) {
+    const m = await load(id); const c = m.cycle;
+    if (c.status === "CLOSED") throw new Error("Quarter fechado.");
+    const old = Object.assign({}, c.params);
+    for (const k of ["threshold", "fx", "materiality", "fxTol"]) if (b[k] !== undefined && b[k] !== "" && !isNaN(+b[k])) c.params[k] = +b[k];
+    c.paramsLocked = true;
+    await saveCycle(c); invalidate(id);
+    await trail(c, { source: "Parâmetros", field: "Parâmetros do ciclo", old: JSON.stringify(old), new: JSON.stringify(c.params), user: b.user || me.name });
+    return { params: c.params };
+  }
+
+  /* DataJud: o artefato não alcança a API do CNJ; a consulta é feita pelo Claude
+     (ou importada a partir da exportação do datajud-search) e gravada aqui. */
+  async function requestDataJud(id, scope, user, silent) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    let cnjs = scope === "all" ? L.ctx.excel.map((r) => r.cnj) : populationCnjs(L.ctx);
+    if (scope === "missing") cnjs = cnjs.filter((x) => !(L.ctx.dj && L.ctx.dj[x]));
+    cnjs = [...new Set(cnjs.filter((x) => x && x.length === 20))];
+    const req = { cycle: id, scope, cnjs, count: cnjs.length, at: nowIso(), by: user || me.name, status: "pending" };
+    await db.doc(`requests/datajud-${id}`).set(req);
+    c.djRequest = { scope, count: cnjs.length, at: req.at, by: req.by, status: "pending" };
+    await saveCycle(c);
+    if (!silent) await trail(c, { source: "DataJud", reason: `Consulta solicitada (${scope}): ${cnjs.length} processos`, user: req.by });
+    return { request: c.djRequest };
+  }
+
+  function normalizeDjInput(json, rowsXlsx) {
+    // aceita: resposta bruta do DataJud, lista de respostas, resultado de lote do datajud-search, resumo do Litigation, ou a planilha exportada pelo datajud-search
+    const results = {};
+    const push = (src) => { if (!src || !src.numeroProcesso) return; const k = String(src.numeroProcesso).replace(/\D/g, ""); (results[k] = results[k] || []).push(DJ.summarize(src)); };
+    if (rowsXlsx) {
+      const H = rowsXlsx[0].map((h) => String(h).toLowerCase());
+      const ix = (re) => H.findIndex((h) => re.test(h));
+      const iN = ix(/n[uú]mero do processo/), iT = ix(/^tribunal/), iC = ix(/^classe/), iO = ix(/[óo]rg[aã]o/), iA = ix(/ajuizamento/), iS = ix(/^status/), iD = ix(/destaque/);
+      const MAPC = { "senten": "Sentença", "acórd": "Acórdão", "acord": "Acórdão", "recurso": "Recurso", "trânsito": "Trânsito em julgado", "transito": "Trânsito em julgado" };
+      const br = (s) => { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s || ""); return m ? `${m[3]}-${m[2]}-${m[1]}T12:00:00Z` : null; };
+      for (const r of rowsXlsx.slice(1)) {
+        const n = String(r[iN] || "").replace(/\D/g, "");
+        if (!n || /não encontrado/i.test(String(r[iS] || ""))) continue;
+        const mov = [];
+        String(r[iD] || "").split("|").forEach((p) => { const [lab, d] = p.split(":"); const key = Object.keys(MAPC).find((k) => String(lab || "").toLowerCase().includes(k)); const dh = br(d); if (key && dh) mov.push({ dataHora: dh, nome: MAPC[key] }); });
+        const st = /^(.*) em (\d{2}\/\d{2}\/\d{4})/.exec(String(r[iS] || ""));
+        if (st) mov.push({ dataHora: br(st[2]), nome: st[1] });
+        push({ numeroProcesso: n, tribunal: r[iT], grau: "—", classe: { nome: String(r[iC] || "").replace(/\s*\(\d+\)$/, "") }, orgaoJulgador: { nome: r[iO] }, dataAjuizamento: br(r[iA]) ? br(r[iA]).slice(0, 10).replace(/-/g, "") : "", movimentos: mov });
+      }
+      return { results, notFound: rowsXlsx.slice(1).filter((r) => /não encontrado/i.test(String(r[iS] || ""))).map((r) => String(r[iN] || "").replace(/\D/g, "")) };
+    }
+    const walk = (j) => {
+      if (!j) return;
+      if (Array.isArray(j)) return j.forEach(walk);
+      if (j.hits && j.hits.hits) return j.hits.hits.forEach((h) => push(h._source));
+      if (j.resultados) return j.resultados.forEach((p) => p.encontrado !== false && push({ numeroProcesso: p.numeroProcesso, tribunal: p.tribunal, grau: p.grau, classe: p.classe, orgaoJulgador: p.orgaoJulgador, dataAjuizamento: p.dataAjuizamento, movimentos: p.andamentos || p.movimentos }));
+      if (j.results && typeof j.results === "object") return Object.entries(j.results).forEach(([k, v]) => { results[k] = v; });
+      if (j._source) return push(j._source);
+      if (j.numeroProcesso && (j.movimentos || j.andamentos)) return push(Object.assign({}, j, { movimentos: j.movimentos || j.andamentos }));
+    };
+    walk(json);
+    return { results, notFound: (json && json.notFound) || [] };
+  }
+
+  async function saveDataJud(id, parsed, source, user) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    const merged = Object.assign({}, (L.m.dj && L.m.dj.results) || {}, parsed.results);
+    const notFound = [...new Set([...(parsed.notFound || []), ...(((L.m.dj && L.m.dj.notFound) || []))])].filter((x) => !merged[x]);
+    const chunks = await putChunks(id, "dj", Object.entries(merged).map(([k, v]) => ({ k, v })), 170000);
+    const pop = populationCnjs(L.ctx);
+    c.datajud = { at: nowIso(), source, chunks, queried: pop.length, found: pop.filter((x) => merged[x]).length, notFound: notFound.length, notFoundList: notFound.slice(0, 500), errors: 0, unroutable: 0 };
+    if (c.djRequest) c.djRequest.status = "done";
+    L.m.dj = { results: merged, notFound };
+    await saveCycle(c); invalidate(id);
+    await trail(c, { source: "DataJud", reason: `${source}: ${Object.keys(parsed.results).length} processos atualizados; ${notFound.length} não localizados`, user: user || me.name });
+    return { datajud: c.datajud };
+  }
+
+  /* Processar: consulta o DataJud pelo conector local (host:datajud) em lotes */
+  let mcpCap;
+  async function processDataJud(id, user, onProgress = () => {}) {
+    const L = await ctxOf(id);
+    if (!L.m.cycle.inputs.excel) throw new Error("Suba a base Excel do quarter antes de processar.");
+    const cnjs = [...new Set(populationCnjs(L.ctx).filter((x) => x && x.length === 20))];
+    if (mcpCap === undefined) mcpCap = window.claude && window.claude.use ? await claude.use("mcp") : null;
+    if (!mcpCap) { await requestDataJud(id, "population", user, true); const e = new Error("NO_CONNECTOR"); e.code = "NO_CONNECTOR"; throw e; }
+    const acc = { results: {}, notFound: [], errors: [] };
+    const size = 40;
+    for (let i = 0; i < cnjs.length; i += size) {
+      onProgress({ done: i, total: cnjs.length });
+      let r;
+      try { r = await mcpCap.callTool("host:datajud", "consultar_processos", { cnjs: cnjs.slice(i, i + size) }); }
+      catch (e) {
+        if (i === 0) { if (["server_not_connected", "not_in_manifest", "not_granted", "blocked_by_policy"].includes(e.code)) { await requestDataJud(id, "population", user, true); const x = new Error("NO_CONNECTOR"); x.code = "NO_CONNECTOR"; x.detail = e.code; throw x; } throw e; }
+        acc.errors.push(e.message || e.code); continue;
+      }
+      const p = r.payload || {};
+      Object.assign(acc.results, p.results || {});
+      acc.notFound.push(...(p.notFound || []));
+      (p.errors || []).forEach((x) => acc.errors.push(x.error || String(x)));
+    }
+    onProgress({ done: cnjs.length, total: cnjs.length });
+    const out = await saveDataJud(id, acc, `DataJud (conector local${acc.errors.length ? `, ${acc.errors.length} lotes com erro` : ""})`, user);
+    return Object.assign({ queried: cnjs.length, errors: acc.errors.length }, out);
+  }
+
+  async function importDataJud(id, file, user) {
+    const buf = await file.arrayBuffer();
+    let parsed;
+    if (/\.xlsx$/i.test(file.name)) {
+      const wb = XLSX.read(buf, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" });
+      parsed = normalizeDjInput(null, rows);
+    } else parsed = normalizeDjInput(JSON.parse(new TextDecoder().decode(buf)));
+    if (!Object.keys(parsed.results).length) throw new Error("Não reconheci processos do DataJud nesse arquivo.");
+    return saveDataJud(id, parsed, `Importação (${file.name})`, user);
+  }
+
+  async function caseDetail(id, cnj) {
+    const L = await ctxOf(id);
+    const issues = withDecisions(L.m, L.issues).filter((i) => i.cnj === cnj);
+    const inst = (L.ctx.dj && L.ctx.dj[cnj]) || null;
+    const pop = population(L);
+    const idx = pop.findIndex((x) => x.cnj === cnj);
+    const t = await readTrail(id);
+    const sm = djSummary(inst);
+    return {
+      cnj, cnjFmt: fmtCnj(cnj), excel: L.ctx.excel.filter((r) => r.cnj === cnj), word: L.ctx.word.filter((w) => w.cnj === cnj),
+      baseline: L.ctx.baseline ? L.ctx.baseline[cnj] || null : null, baselineFrom: L.baselineFrom,
+      datajud: inst, djSummary: sm, djStage: inst ? STAGE_LABEL[djStage(sm)] : null,
+      djNotFound: !!(L.djMeta && (L.djMeta.notFound || []).includes(cnj)),
+      issues, trail: t.filter((x) => x.cnj === cnj),
+      prev: idx > 0 ? pop[idx - 1].cnj : null, next: idx >= 0 && idx < pop.length - 1 ? pop[idx + 1].cnj : null, params: L.ctx.params,
+    };
+  }
+
+  async function decide(id, b) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    if (c.status === "CLOSED") throw new Error("Quarter fechado: decisões congeladas.");
+    const i = L.issues.find((x) => x.key === b.key);
+    if (!i) throw new Error("Inconsistência não encontrada (a base pode ter sido reimportada).");
+    const user = b.user || me.name || "usuário";
+    const k = safeKey(i.key);
+    if (b.decision === "REOPEN") {
+      const oldD = L.m.decisions[k];
+      await db.doc(`cycles/${id}/decisions/${k}`).delete();
+      delete L.m.decisions[k];
+      await trail(c, { cnj: i.cnj, rule: i.rule, field: i.field, old: oldD ? `${oldD.decision}${oldD.value ? " = " + oldD.value : ""}` : "", new: "Reaberta", source: "Validação humana", reason: "Decisão reaberta", decision: "REOPEN", user });
+      return { ok: true };
+    }
+    if (!DECISIONS[b.decision]) throw new Error("Decisão inválida.");
+    if (!RULE[i.rule].acoes.includes(b.decision)) throw new Error(`A regra ${i.rule} não admite "${DECISIONS[b.decision]}".`);
+    if (b.decision === "MANUAL" && !String(b.value || "").trim()) throw new Error("Informe o valor corrigido.");
+    const just = String(b.justification || "").trim();
+    if ((b.decision === "KEEP" || b.decision === "JUSTIFIED" || i.sev === "C") && just.length < 5) throw new Error("Justificativa obrigatória para esta decisão.");
+    const d = { key: i.key, decision: b.decision, value: b.decision === "MANUAL" ? String(b.value).trim() : b.decision === "ACCEPT" ? i.suggested || i.datajud || null : null, justification: just, by: user, byId: me.id || null, at: nowIso(), rule: i.rule, cnj: i.cnj, field: i.field };
+    await db.doc(`cycles/${id}/decisions/${k}`).set(d);
+    L.m.decisions[k] = d;
+    await trail(c, {
+      cnj: i.cnj, rule: i.rule, field: i.field,
+      old: [i.excel && `Excel: ${i.excel}`, i.word && `Word: ${i.word}`, i.prev && `Anterior: ${i.prev}`].filter(Boolean).join(" | "),
+      new: d.value || (b.decision === "KEEP" ? "Mantido o dado interno" : b.decision === "JUSTIFIED" ? "Divergência mantida" : ""),
+      source: b.decision === "ACCEPT" ? (i.datajud ? "DataJud" : "Sugestão do sistema") : b.decision === "MANUAL" ? "Correção manual" : "Base interna",
+      reason: i.reason, decision: DECISIONS[b.decision], justification: just, user,
+    });
+    return { ok: true, decision: d };
+  }
+
+  /* ---------- saídas ---------- */
+  const WORD_FIELD = { "Case Stage": "stage", "Case Stage × Status": "stage", "Loss Reserve": "reserve", "Financial Relief USD": "reliefUSD", "Financial Relief BRL": "reliefBRL", "Date of First Court Filing": "filing", "Estimated Date of Case Completion": "estCompletion", "Lawsuit Number": "lawsuit" };
+  function overrides(m, issues) {
+    const out = {};
+    for (const i of issues) {
+      const d = m.decisions[safeKey(i.key)];
+      if (!d) continue;
+      let v = d.decision === "MANUAL" ? d.value : d.decision === "ACCEPT" ? i.suggested || null : null;
+      if (v === null || v === undefined || v === "") continue;
+      (out[i.cnj] = out[i.cnj] || []).push({ field: i.field, value: v, rule: i.rule, decision: d.decision });
+    }
+    return out;
+  }
+  function wordChanges(L, issues) {
+    const { ctx, m } = L;
+    const q = quarterInfo(ctx.cycleId);
+    const exBy = {}; ctx.excel.forEach((r) => { if (!exBy[r.cnj]) exBy[r.cnj] = r; });
+    const ov = overrides(m, issues);
+    const ch = {};
+    const keepRules = { stage: ["AUD-006", "AUD-007", "AUD-008", "AUD-022"], filing: ["AUD-005"], reliefBRL: ["AUD-015"], reliefUSD: ["AUD-015"], reserve: ["AUD-012", "AUD-013"] };
+    for (const w of ctx.word.filter((x) => x.kind === "general" && x.cnj)) {
+      const r = exBy[w.cnj];
+      if (!r) continue;
+      const set = {};
+      const st = stageFromExcel(r.posicao);
+      if (st && stageFromWord(w.stage) !== st) set.stage = STAGE_LABEL[st];
+      if (r.valorCur && Math.abs((w.reliefBRLn || 0) - r.valorCur) > 0.01) set.reliefBRL = `BRL ${fmtBR(r.valorCur)}`;
+      const usd = r.valorCur ? r.valorCur / ctx.params.fx : null;
+      if (usd && Math.abs((w.reliefUSDn || 0) - usd) / usd > 0.001) set.reliefUSD = `USD ${fmtBR(usd)}`;
+      if (r.prob && RISK_EN[r.prob] && !new RegExp(RISK_EN[r.prob], "i").test(w.risk || "")) set.risk = RISK_EN[r.prob];
+      if (r.prob === "Provável" && r.vProv > 0 && Math.abs((w.reserveN || 0) - r.vProv) > 0.01) set.reserve = `BRL ${fmtBR(r.vProv)}`;
+      const y = w.cnj.length === 20 ? w.cnj.slice(9, 13) : null;
+      if (y && !(w.filing || "").includes(y)) set.filing = y;
+      if (q) { const lu = `${ORD[q.q - 1]} Quarter ${q.y}`; if ((w.lastUpdate || "").trim() !== lu) set.lastUpdate = lu; }
+      for (const [k, rules] of Object.entries(keepRules)) {
+        if (set[k] === undefined) continue;
+        if (issues.some((i) => i.cnj === w.cnj && rules.includes(i.rule) && m.decisions[safeKey(i.key)] && ["KEEP", "JUSTIFIED"].includes(m.decisions[safeKey(i.key)].decision))) delete set[k];
+      }
+      for (const o of ov[w.cnj] || []) { const k = WORD_FIELD[o.field]; if (k) set[k] = o.value; }
+      // andamentos relevantes do DataJud entram no Status Update como inserção rastreada
+      const st21 = issues.find((i) => i.cnj === w.cnj && i.rule === "AUD-021");
+      if (st21) {
+        const d = m.decisions[safeKey(st21.key)];
+        if (!d || !["KEEP", "JUSTIFIED"].includes(d.decision)) {
+          const txt = d && d.decision === "MANUAL" ? d.value : st21.suggested;
+          if (txt) set.status = { append: txt };
+        }
+      }
+      if (Object.keys(set).length) ch[w.cnj] = set;
+    }
+    return ch;
+  }
+  const ISSUE_HDR = ["Lawsuit Number", "Plaintiff", "Validation ID", "Regra", "Severity", "Bloqueia fechamento", "Field", "Previous Quarter", "Current Excel", "Word", "DataJud", "Latest Proceeding", "Reason", "Suggested Action", "Decision", "Valor corrigido", "Justification", "Validated By", "Validated At", "Status"];
+  const TRAIL_HDR = ["Timestamp", "Quarter", "Lawsuit Number", "Validation ID", "Field", "Old Value", "New Value", "Source", "Reason", "Decision", "Justification", "User"];
+  const issueRow = (m, i) => { const d = m.decisions[safeKey(i.key)]; return [fmtCnj(i.cnj), i.plaintiff || "", i.rule, RULE[i.rule].name, { C: "Critical", R: "Relevant", Q: "Data Quality" }[i.sev], i.block ? "Sim" : "Não", i.field || "", i.prev || "", i.excel || "", i.word || "", i.datajud || "", i.latest || "", i.reason || "", i.action || "", d ? DECISIONS[d.decision] : "", d ? d.value || "" : "", d ? d.justification || "" : "", d ? d.by : "", d ? d.at : "", d ? "Validated" : "Open"]; };
+  const trailRow = (t) => [t.ts, t.quarter, t.cnj ? fmtCnj(t.cnj) : "", t.rule || "", t.field || "", t.old || "", t.new || "", t.source || "", t.reason || "", t.decision || "", t.justification || "", t.user || ""];
+  const xlsxOf = (name, aoa, widths) => { const wb = XLSX.utils.book_new(); const ws = XLSX.utils.aoa_to_sheet(aoa); if (widths) ws["!cols"] = widths.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx", compression: true })); };
+
+  /* Decisões que alteram células do Excel (regra → coluna do modelo) */
+  const STAGE_PT = { "Completed": "Arquivado", "Enforcement": "Execução", "On Appeal": "2ª Instância", "Action Pending in Court": "1ª Instância", "Negotiated Settlement": "Acordo" };
+  const RISK_PT = { probable: "Provável", provavel: "Provável", possible: "Possível", possivel: "Possível", remote: "Remota", remota: "Remota" };
+  const brNum = (v) => { if (typeof v === "number") return v; const t = String(v || "").replace(/[^\d,.\-]/g, ""); if (!t) return null; const n = /,\d{1,2}$/.test(t) ? +t.replace(/\./g, "").replace(",", ".") : +t.replace(/,/g, ""); return isNaN(n) ? null : n; };
+  const plain = (v) => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  function excelEdits(L, issues) {
+    const m = L.m, out = [];
+    const exBy = {}; L.ctx.excel.forEach((r) => { if (!exBy[r.cnj]) exBy[r.cnj] = r; });
+    for (const i of issues) {
+      const d = m.decisions[safeKey(i.key)];
+      if (!d || !["MANUAL", "ACCEPT"].includes(d.decision)) continue;
+      const v = d.decision === "MANUAL" ? d.value : i.suggested;
+      const r = i.ref && i.ref.startsWith("ex") ? L.ctx.excel[+i.ref.slice(2)] : exBy[i.cnj];
+      if (!r || v === null || v === undefined || v === "") continue;
+      const push = (key, val) => out.push({ row: r._row, cnj: i.cnj, key, old: r[key], val, rule: i.rule, decision: d.decision, by: d.by, at: d.at, just: d.justification });
+      const sfx = i.suffix || "";
+      switch (i.rule) {
+        case "AUD-001": if (i.ref && i.ref.startsWith("ex")) push("cnj", String(v)); break;
+        case "AUD-005": if (sfx === "x") push("distrib", String(v)); break;
+        case "AUD-006": push("posicao", STAGE_PT[v] || v); break;
+        case "AUD-009": case "AUD-010": case "AUD-011": case "AUD-012": case "AUD-013":
+          if (i.rule === "AUD-012" && sfx === "w") break;
+          if (brNum(v) !== null) push("vProv", brNum(v)); else if (RISK_PT[plain(v)]) push("prob", RISK_PT[plain(v)]);
+          break;
+        case "AUD-015": if (sfx === "x" && brNum(v) !== null) push("usdCur", brNum(v)); break;
+        case "AUD-016": if (sfx === "f") push("acimaCur", /^s|^y|sim|yes/i.test(String(v)) ? "Sim" : "Não"); else if (d.decision === "ACCEPT") push("repCur", i.tag === "OUT" ? "Não" : "Sim"); break;
+        case "AUD-017": if (d.decision === "ACCEPT") push("repCur", "Sim"); break;
+        case "AUD-019": if (brNum(v) !== null) { push("valorCur", brNum(v)); push("usdCur", brNum(v) / L.ctx.params.fx); } break;
+      }
+    }
+    return out;
+  }
+
+  async function validatedXlsx(L, issues) {
+    const c = L.m.cycle;
+    const b64 = await getB64(c.id, "excel-raw", c.inputs.excel.rawChunks);
+    const wb = XLSX.read(fromB64(b64), { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+    const hdr = c.inputs.excel.headerRow - 1;
+    const colOf = {}; (c.inputs.excel.mapping || []).forEach((mp) => { if (mp.col) colOf[mp.key] = XLSX.utils.decode_col(mp.col); });
+    // 1) aplica as decisões nas células
+    const edits = excelEdits(L, issues);
+    const applied = [];
+    for (const e of edits) {
+      const col = colOf[e.key];
+      if (col === undefined) continue;
+      const addr = XLSX.utils.encode_cell({ r: e.row - 1, c: col });
+      const before = ws[addr] ? ws[addr].v : "";
+      ws[addr] = typeof e.val === "number" ? { t: "n", v: e.val } : { t: "s", v: String(e.val) };
+      applied.push(Object.assign({ addr, before }, e));
+    }
+    // 2) colunas de auditoria ao final
+    const byRow = {}; L.ctx.excel.forEach((r) => { byRow[r._row] = r; });
+    const iss = {}; issues.forEach((i) => { (iss[i.cnj] = iss[i.cnj] || []).push(i); });
+    const chByRow = {}; applied.forEach((a) => { (chByRow[a.row] = chByRow[a.row] || []).push(`${(c.inputs.excel.mapping.find((x) => x.key === a.key) || {}).header || a.key}: ${a.before === "" ? "(vazio)" : a.before} → ${a.val}`); });
+    const width = rows[hdr].length;
+    const add = [["AUDIT_STATUS", "AUDIT_ISSUES", "AUDIT_DECISIONS", "VALIDATED_CHANGES"]];
+    for (let i = hdr + 1; i < rows.length; i++) {
+      const r = byRow[i + 1];
+      if (!r) { add.push(["", "", "", ""]); continue; }
+      const li = iss[r.cnj] || [], open = li.filter((x) => !L.m.decisions[safeKey(x.key)]);
+      add.push([li.length ? (open.length ? `OPEN (${open.length})` : "VALIDATED") : "OK", li.map((x) => x.rule).join(", "), li.filter((x) => L.m.decisions[safeKey(x.key)]).map((x) => `${x.rule}: ${L.m.decisions[safeKey(x.key)].decision}`).join("; "), (chByRow[i + 1] || []).join("; ")]);
+    }
+    XLSX.utils.sheet_add_aoa(ws, add, { origin: { r: hdr, c: width } });
+    // 3) aba de log: antes/depois de cada célula alterada
+    const log = [["Linha", "Célula", "Lawsuit Number", "Coluna", "Valor original", "Valor validado", "Regra", "Decisão", "Justificativa", "Validado por", "Validado em"]];
+    applied.forEach((a) => log.push([a.row, a.addr, fmtCnj(a.cnj), (c.inputs.excel.mapping.find((x) => x.key === a.key) || {}).header || a.key, a.before, a.val, a.rule, DECISIONS[a.decision], a.just || "", a.by || "", a.at || ""]));
+    const wl = XLSX.utils.aoa_to_sheet(log); wl["!cols"] = [8, 8, 26, 30, 22, 22, 10, 22, 40, 20, 22].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wl, "VALIDATION_LOG");
+    return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx", compression: true }));
+  }
+
+  async function exportFile(id, kind) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    const issues = withDecisions(L.m, L.issues);
+    if (c.status !== "CLOSED") throw new Error("A exportação é liberada depois do CLOSE QUARTER.");
+    const tag = id.replace("-", "_"), draft = c.status === "CLOSED" ? "" : "_DRAFT";
+    if (kind === "validated") { if (!c.inputs.excel) throw new Error("Sem base importada."); return { filename: `Litigation_${tag}_VALIDATED${draft}.xlsx`, data: await validatedXlsx(L, issues) }; }
+    if (kind === "audit") return { filename: `Litigation_${tag}_AUDIT_REPORT${draft}.xlsx`, data: xlsxOf("Audit", [ISSUE_HDR, ...issues.map((i) => issueRow(L.m, i))], [26, 28, 10, 30, 12, 10, 22, 24, 30, 36, 30, 36, 48, 32, 22, 20, 36, 18, 20, 10]) };
+    if (kind === "trail") return { filename: `Litigation_${tag}_AUDIT_TRAIL.xlsx`, data: xlsxOf("Audit Trail", [TRAIL_HDR, ...(await readTrail(id)).map(trailRow)]) };
+    const ch = wordChanges(L, issues);
+    if (kind === "word-changes") {
+      const FL = { status: "Case Description and Status Update", stage: "Case Stage", reliefBRL: "Financial Relief (BRL)", reliefUSD: "Financial Relief (USD)", risk: "Risk of loss", reserve: "Loss Reserve", filing: "Date of First Court Filing", lastUpdate: "Date of Last Update", estCompletion: "Estimated Date of Case Completion", lawsuit: "Lawsuit number" };
+      const cur = {}; L.ctx.word.forEach((w) => { if (w.kind === "general") cur[w.cnj] = w; });
+      const rows = [["Lawsuit Number", "Case Name", "Field", "Current Word", "New Value"]];
+      Object.entries(ch).forEach(([cnj, set]) => Object.entries(set).forEach(([k, v]) => rows.push([fmtCnj(cnj), (cur[cnj] || {}).caseName || "", FL[k] || k, k === "status" ? "(texto atual mantido)" : (cur[cnj] || {})[k] || "", typeof v === "object" ? "Inserção: " + v.append : v])));
+      return { filename: `Litigation_${tag}_WORD_CHANGES${draft}.xlsx`, data: xlsxOf("Word changes", rows, [26, 34, 26, 40, 40]) };
+    }
+    const g = (c.inputs.wordGeneral || [])[0];
+    if (!g || !g.rawChunks) throw new Error("Importe o Word General (.docx) para gerar o relatório com Track Changes.");
+    const b64 = await getB64(id, `wg-${g.scope}-raw`, g.rawChunks);
+    const out = await DOCX.applyTrackChanges(fromB64(b64), ch, `Litigation Audit Desk (${me.name || "usuário"})`);
+    return { filename: `Litigation Report ${id} - General${draft}.docx`, data: out.data, applied: out.applied.length };
+  }
+
+  async function download(id, kind) {
+    const f = await exportFile(id, kind);
+    if (!dl) throw new Error("Download indisponível nesta visualização.");
+    const r = await dl.save({ filename: f.filename, data: f.data });
+    return Object.assign({ filename: f.filename }, r);
+  }
+
+  async function close(id, b) {
+    const L = await ctxOf(id);
+    const c = L.m.cycle;
+    if (c.status === "CLOSED") throw new Error("Quarter já está fechado.");
+    const issues = withDecisions(L.m, L.issues);
+    const st = stats(L, issues);
+    if (st.blocking > 0) throw new Error(`Ainda há ${st.blocking} inconsistências bloqueadoras em aberto.`);
+    const user = (b && b.user) || me.name || "usuário";
+    const ov = overrides(L.m, issues);
+    const accepted023 = issues.filter((i) => i.rule === "AUD-023" && L.m.decisions[safeKey(i.key)] && L.m.decisions[safeKey(i.key)].decision === "ACCEPT").map((i) => i.cnj);
+    const closedReport = [...new Set([...L.ctx.word.filter((w) => w.kind === "closed").map((w) => w.cnj), ...accepted023])].filter(Boolean);
+    const edits = excelEdits(L, issues);
+    const recs = L.ctx.excel.map((r) => Object.assign({}, r, { _overrides: ov[r.cnj] || [] }));
+    const byRow = {}; recs.forEach((r) => { byRow[r._row] = r; });
+    edits.forEach((e) => { if (byRow[e.row]) byRow[e.row][e.key] = e.val; });
+    const validatedChunks = await putChunks(id, "validated", recs);
+    c.status = "CLOSED";
+    c.closed = { at: nowIso(), by: user, byId: me.id, validatedChunks, closedReport, summary: st, files: ["Base validada", "Word com Track Changes", "Relatório de auditoria", "Audit trail"] };
+    await saveCycle(c); invalidate(id);
+    await trail(c, { source: "Quarter Close", reason: `Quarter fechado: ${issues.length} inconsistências, ${Object.keys(L.m.decisions).length} decisões`, decision: "CLOSE QUARTER", user });
+    return { ok: true, closed: c.closed };
+  }
+
+  return { init, processDataJud, meta, cycles, createCycle, cycle, audit, upload, setParams, requestDataJud, importDataJud, saveDataJud, caseDetail, decide, download, close, me: () => me, hasDb: () => !!db };
+})();
+
+(() => {
+/* Litigation Audit Desk: front-end (sem dependências) */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtN = (v, d = 2) => (v === null || v === undefined || v === "" || isNaN(v) ? "—" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d }));
+const fmtUSD = (v) => (v === null || v === undefined ? "—" : "USD " + fmtN(v, 0));
+const fmtDate = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join("/") : "—");
+const fmtTs = (s) => (s ? new Date(s).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—");
+const SEVL = { C: "Critical", R: "Relevant", Q: "Data Quality" };
+const SEVC = { C: "crit", R: "rel", Q: "qual" };
+const sevPill = (s) => `<span class="pill ${SEVC[s]}"><span class="dot"></span>${SEVL[s]}</span>`;
+
+const S = {
+  meta: null, cycles: [], cid: null, cycle: null, audit: null, caseCnj: null, caseData: null,
+  view: "home", poll: null,
+  f: { inc: { sev: "", rule: "", status: "Open", q: "", block: "" }, lit: { emp: "", thr: "", q: "", only: "" } },
+};
+const user = () => { try { return localStorage.getItem("lit.user") || SVC.me().name || ""; } catch (e) { return SVC.me().name || ""; } };
+
+const withUser = (o) => Object.assign({ user: user() }, o || {});
+function toast(msg, ms = 3200) {
+  const t = $("#toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
+}
+
+/* ---------------- boot ---------------- */
+async function boot() {
+  const env = await SVC.init();
+  S.meta = SVC.meta();
+  if (!env.db) { $("#page").innerHTML = `<div class="notice warn">A base compartilhada não carregou nesta visualização. Abra o artefato pelo link no Claude para importar e validar.</div>`; }
+  $("#ev").textContent = S.meta.engine;
+  
+  const u = $("#user");
+  u.value = user();
+  u.addEventListener("change", () => { try { localStorage.setItem("lit.user", u.value.trim()); } catch (e) {} toast("Usuário salvo: " + u.value); });
+  $("#nav").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (b) go(b.dataset.v); });
+  await loadCycles();
+  let initial = "home";
+  try { const h = location.hash.slice(1); if (["home", "upload", "lit", "inc", "case", "close"].includes(h)) initial = h; } catch (e) {}
+  if (S.cid) await loadCycle(S.cid);
+  document.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  document.addEventListener("drop", (e) => { if (e.target.closest && e.target.closest("#dropz")) return; if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); if (S.view !== "home") { toast("Para subir arquivos, use a aba Quarters."); return; } uploadAny([...e.dataTransfer.files]); } });
+  window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h !== S.view && ["home", "upload", "lit", "inc", "case", "close"].includes(h)) go(h); });
+  go(S.cid ? (initial === "home" ? "home" : initial) : "home");
+}
+
+async function loadCycles() {
+  const r = await SVC.cycles();
+  S.cycles = r.cycles;
+  let saved = null; try { saved = localStorage.getItem("lit.cid"); } catch (e) {}
+  if (!S.cid) S.cid = (S.cycles.find((c) => c.id === saved) || S.cycles.find((c) => c.status !== "CLOSED") || S.cycles[0] || {}).id || null;
+}
+async function loadCycle(id) {
+  S.cid = id; try { localStorage.setItem("lit.cid", id); } catch (e) {}
+  const c = await SVC.cycle(id); const a = await SVC.audit(id);
+  S.cycle = c; S.audit = a;
+}
+async function refresh() { if (S.cid) await loadCycle(S.cid); await loadCycles(); render(); }
+
+function go(v) {
+  S.view = v;
+  try { history.replaceState(null, "", "#" + v); } catch (e) {}
+  document.querySelectorAll("#nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.v === v ? "page" : "false"));
+  render();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  renderTopbar();
+  renderCounts();
+  const v = S.view;
+  const needCycle = v !== "home" && !S.cid;
+  if (needCycle) { $("#page").innerHTML = `<div class="notice warn">Abra um quarter primeiro na tela Quarters.</div>`; return; }
+  ({ home: viewHome, upload: viewUpload, lit: viewLit, inc: viewInc, case: viewCase, close: viewClose })[v]();
+}
+
+function statusPill(st) {
+  const m = { "CLOSED": "ok", "READY TO CLOSE": "acc", "OPEN": "rel", "AWAITING INPUT": "" };
+  return `<span class="pill ${m[st] ?? ""}">${esc(st)}</span>`;
+}
+
+function renderTopbar() {
+  const c = S.cycle;
+  if (!c) { $("#topbar").innerHTML = `<div class="cyc"><h1>Litigation Reporting</h1><span class="meta">Nenhum quarter aberto</span></div>`; return; }
+  const st = c.stats;
+  const djTxt = c.cycle.datajud ? `<span class="pill dj">DataJud ${fmtTs(c.cycle.datajud.at)}</span>` : `<span class="pill">DataJud pendente</span>`;
+  $("#topbar").innerHTML = `
+    <div class="cyc"><h1>${esc(c.cycle.id.replace("-", " "))}</h1>${statusPill(c.cycle.status)}</div>
+    <span class="spacer"></span>
+    ${djTxt}
+    <span class="pill crit">${st.blocking} bloqueadoras</span>
+    <span class="pill">${st.open} abertas · ${st.total - st.open} validadas</span>`;
+}
+
+/* Upload único: reconhece cada arquivo e manda para o lugar certo */
+async function sniffXlsx(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array", sheetRows: 15 });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: "" });
+  const head = rows.slice(0, 3).flat().map((x) => String(x).toLowerCase());
+  const isDj = head.some((h) => /status \(último andamento\)|andamentos em destaque/.test(h));
+  let cycleId = null;
+  if (!isDj) { try { cycleId = TPL.mapModel(rows).cycleId; } catch (e) {} }
+  return { isDj, cycleId };
+}
+async function uploadAny(files) {
+  if (!files.length) return;
+  if (!SVC.hasDb()) { toast("Abra o artefato pelo link no Claude para subir arquivos.", 6000); return; }
+  const plan = [];
+  for (const f of files) {
+    if (/\.json$/i.test(f.name)) plan.push({ f, kind: "dj", order: 3 });
+    else if (/\.docx$/i.test(f.name)) plan.push({ f, kind: /closed/i.test(f.name) ? "word-closed" : "word-general", order: 2 });
+    else if (/\.xlsx$/i.test(f.name)) { const s = await sniffXlsx(f); plan.push(s.isDj ? { f, kind: "dj", order: 3 } : { f, kind: "excel", order: 1, cycleId: s.cycleId }); }
+    else toast(`${f.name}: formato não aceito (use .xlsx, .docx ou .json).`, 5000);
+  }
+  plan.sort((a, b) => a.order - b.order);
+  try {
+    const ex = plan.find((p) => p.kind === "excel");
+    // sem quarter aberto, cria pelo quarter citado no cabeçalho da planilha
+    if (!S.cid || (ex && ex.cycleId && ex.cycleId !== S.cid && !S.cycles.some((c) => c.id === ex.cycleId))) {
+      const id = (ex && ex.cycleId) || null;
+      if (!id) { toast("Suba primeiro a base Excel: o quarter é identificado pelo cabeçalho dela.", 6000); return; }
+      if (!S.cycles.some((c) => c.id === id)) { await SVC.createCycle({ id, user: user() }); toast(`${id} criado a partir da planilha.`); }
+      await loadCycles(); await loadCycle(id);
+    } else if (ex && ex.cycleId && ex.cycleId !== S.cid && S.cycles.some((c) => c.id === ex.cycleId)) {
+      await loadCycle(ex.cycleId);
+    }
+    for (const p of plan) {
+      toast(`Processando ${p.f.name}…`, 60000);
+      if (p.kind === "dj") { const r = await SVC.importDataJud(S.cid, p.f, user()); toast(`DataJud: ${r.datajud.found} de ${r.datajud.queried} processos com retorno.`, 4000); }
+      else { const r = await SVC.upload(S.cid, p.kind, p.f, user()); toast(p.kind === "excel" ? `${r.rows} processos · coluna do processo ${r.processColumn.col}` : `${p.f.name}: ${r.info.records} casos`, 4000); }
+    }
+    await refresh();
+    toast(`${plan.length} arquivo(s) processado(s).`, 4000);
+    go("home");
+  } catch (e) { toast(e.message || String(e), 7000); }
+}
+function renderCounts() {
+  const st = S.cycle?.stats;
+  $("#n-home").textContent = S.cycles.length || "";
+  $("#n-upload").textContent = S.cycle?.inputs?.excel ? "✓" : "";
+  $("#n-lit").textContent = S.audit ? S.audit.cases.length : "";
+  $("#n-inc").textContent = st ? st.open : "";
+  $("#n-case").textContent = S.caseCnj ? "•" : "";
+  $("#n-close").textContent = st ? (st.blocking ? st.blocking : "✓") : "";
+}
+
+/* ---------------- 1. Quarters ---------------- */
+function nextQuarterId() {
+  const ids = S.cycles.map((c) => c.id);
+  const d = new Date(); let q = Math.floor(d.getMonth() / 3) + 1, y = d.getFullYear();
+  if (ids.length) { const m = /Q(\d)-(\d{4})/.exec(ids[0]); q = +m[1] + 1; y = +m[2]; if (q > 4) { q = 1; y++; } }
+  return `Q${q}-${y}`;
+}
+function fileChip(ok, label, detail) { return `<div class="fchip ${ok ? "ok" : ""}"><span class="m">${ok ? "✓" : "·"}</span><div><b>${label}</b><span>${detail}</span></div></div>`; }
+function viewHome() {
+  const c = S.cycle, I = c ? c.inputs : null, frozen = c && c.cycle.status === "CLOSED";
+  const dj = c && c.cycle.datajud;
+  const rows = S.cycles.map((q) => {
+    const st = q.stats;
+    const done = st ? st.total - st.open : 0, pct = st && st.total ? Math.round((done / st.total) * 100) : 0;
+    return `<tr class="click ${q.id === S.cid ? "sel" : ""}" data-cid="${q.id}">
+      <td><b class="mono" style="font-size:14px">${esc(q.id)}</b></td><td>${statusPill(q.status)}</td>
+      <td class="num">${q.inputs.excel ? fmtN(q.inputs.excel.rows, 0) : "—"}</td><td class="num">${st ? st.reportable : "—"}</td>
+      <td>${q.datajud ? `${q.datajud.found}/${q.datajud.queried}` : "—"}</td>
+      <td style="min-width:160px"><div class="bar"><i style="width:${pct}%;background:var(--accent)"></i></div><span class="muted" style="font-size:12px">${st ? `${done}/${st.total} validadas · ${st.blocking} bloqueadoras` : "sem base"}</span></td>
+      <td>${q.closed ? `${fmtDate(q.closed.at)} · ${esc(q.closed.by)}` : "—"}</td></tr>`;
+  }).join("");
+  const card = c ? `
+    <div class="panel qcard"><div class="hd"><h3>${esc(c.cycle.id.replace("-", " "))}</h3>${statusPill(c.cycle.status)}<span class="spacer"></span>
+      ${frozen ? "" : `<label class="btn" for="fx-any">↑ Subir arquivos</label>`}
+      ${frozen ? "" : `<button class="btn primary" id="bproc" ${I.excel ? "" : "disabled"}>▶ Processar</button>`}</div>
+      <div class="bd" style="display:flex;flex-direction:column;gap:14px">
+        <div class="fchips">
+          ${fileChip(!!I.excel, "Base Excel", I.excel ? `${esc(I.excel.name)} · ${fmtN(I.excel.rows, 0)} processos · coluna do processo ${esc(I.excel.processColumn.col)}` : "pendente")}
+          ${fileChip((I.wordGeneral || []).length > 0, "Word General", (I.wordGeneral || []).length ? I.wordGeneral.map((w) => `${esc(w.name)} · ${w.records} casos`).join("<br>") : "pendente")}
+          ${fileChip(!!I.wordClosed, "Word Closed Cases", I.wordClosed ? `${esc(I.wordClosed.name)} · ${I.wordClosed.records} casos` : "opcional")}
+          ${fileChip(!!dj, "DataJud", dj ? `${dj.found} de ${dj.queried} processos · ${fmtTs(dj.at)}` : "roda no Processar")}
+        </div>
+        <div id="procbox">${procHint()}</div>
+      </div></div>` : "";
+  $("#page").innerHTML = `
+    <div><h2>Quarters</h2><p class="lede">Suba os arquivos uma vez aqui: todas as abas passam a usar esses dados. Depois clique em Processar para consultar o DataJud e rodar a auditoria.</p></div>
+    ${frozen ? "" : `<div class="drop" id="dropz-home" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;padding:22px"><span>Arraste a base (.xlsx) e os Words (.docx) do quarter, ou</span><label class="btn ${c ? "" : "primary"}" for="fx-any">↑ Subir arquivos</label><span class="muted" style="width:100%;font-size:12px">${c ? `Os arquivos entram em ${esc(c.cycle.id)}. Uma planilha de outro quarter cria o quarter correspondente.` : "O quarter é criado sozinho a partir do cabeçalho da planilha (ex.: Q3/2026)."}</span></div>`}
+    <input type="file" id="fx-any" accept=".xlsx,.docx,.json" multiple hidden>
+    ${card}
+    ${S.cycles.length ? `<div class="tw"><table><thead><tr><th>Quarter</th><th>Status</th><th class="num">Processos</th><th class="num">Reportáveis</th><th>DataJud</th><th>Validação</th><th>Fechamento</th></tr></thead><tbody id="tcy">${rows}</tbody></table></div>` : ""}
+    <details><summary class="muted">Abrir um quarter manualmente</summary><form id="fnew" class="row" style="align-items:flex-end;margin-top:10px">
+      <label class="f">Quarter<input type="text" id="nq" value="${nextQuarterId()}" style="width:110px" required></label>
+      <label class="f">Threshold (USD)<input type="number" id="nt" value="${S.meta.defaults.threshold}" style="width:130px"></label>
+      <label class="f">Câmbio BRL/USD<input type="number" step="0.0001" id="nfx" value="${S.meta.defaults.fx}" style="width:110px"></label>
+      <label class="f">Materialidade (%)<input type="number" id="nm" value="${S.meta.defaults.materiality * 100}" style="width:110px"></label>
+      <button class="btn" type="submit">Abrir</button></form></details>`;
+  const inp = $("#fx-any");
+  inp.addEventListener("change", () => { const f = [...inp.files]; inp.value = ""; uploadAny(f); });
+  $("#bproc")?.addEventListener("click", processar);
+  $("#fnew").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { const id = $("#nq").value.trim().toUpperCase(); await SVC.createCycle({ user: user(), id, params: { threshold: +$("#nt").value, fx: +$("#nfx").value, materiality: +$("#nm").value / 100 } }); await loadCycles(); await loadCycle(id); toast(`${id} aberto.`); viewHome(); renderTopbar(); } catch (err) { toast(err.message, 5000); }
+  });
+  $("#tcy")?.addEventListener("click", async (e) => { const tr = e.target.closest("tr[data-cid]"); if (!tr) return; await loadCycle(tr.dataset.cid); render(); });
+  bindDjFallback();
+}
+function procHint() {
+  const c = S.cycle; if (!c) return "";
+  if (c.cycle.status === "CLOSED") return `<div class="notice" style="background:var(--ok-soft)">Quarter fechado. As saídas estão na aba Quarter Close.</div>`;
+  if (!c.inputs.excel) return `<p class="muted">Suba a base Excel para liberar o Processar.</p>`;
+  if (!c.cycle.datajud) return `<p class="muted">Processar consulta o DataJud para os ${S.audit ? S.audit.cases.length : ""} processos da população reportável, pelo seu computador, e recalcula as 26 regras.</p>`;
+  return `<p class="muted">Último processamento: ${fmtTs(c.cycle.datajud.at)} (${esc(c.cycle.datajud.source || "")}). Processar de novo atualiza os andamentos.</p>`;
+}
+async function processar() {
+  const box = $("#procbox"), btn = $("#bproc");
+  if (btn) btn.disabled = true;
+  box.innerHTML = `<div class="row"><span class="pill dj"><span class="dot"></span>Consultando o DataJud…</span><span class="bar" style="width:220px;display:inline-flex"><i id="pbar" style="width:3%;background:var(--dj)"></i></span><span id="ptxt" class="muted"></span></div>`;
+  try {
+    const r = await SVC.processDataJud(S.cid, user(), (p) => { const b = $("#pbar"), t = $("#ptxt"); if (b) b.style.width = Math.max(3, Math.round((p.done / p.total) * 100)) + "%"; if (t) t.textContent = `${p.done} de ${p.total} processos`; });
+    await refresh();
+    toast(`Processado: ${r.datajud.found} de ${r.queried} processos com retorno do DataJud${r.errors ? ` · ${r.errors} lotes com erro` : ""}.`, 6000);
+    go("inc");
+  } catch (e) {
+    if (e.code === "NO_CONNECTOR") {
+      await refresh();
+      $("#procbox").innerHTML = `<div class="notice warn" style="flex-direction:column;align-items:stretch;gap:8px"><b>${window.__LOCAL__ ? "O DataJud não respondeu." : "O DataJud automático não roda dentro do Claude."}</b>
+        <span>${window.__LOCAL__ ? "Verifique a conexão com a internet e tente de novo." : "Dentro do Claude o navegador não alcança a API do CNJ. Para o Processar automático, abra esta mesma tela no seu computador com o <b>iniciar-litigation.bat</b> (pasta datajud-search)."}</span>
+        <span>Enquanto isso, a auditoria já está calculada sem DataJud. Você também pode pedir no chat: "atualiza o DataJud do ${esc(S.cid)}", ou importar o retorno exportado pelo datajud-search:</span>
+        <div><label class="btn sm" for="fx-dj">Importar retorno do DataJud</label><input type="file" id="fx-dj" accept=".json,.xlsx" hidden></div></div>`;
+      bindDjFallback();
+    } else { toast(e.message || String(e), 7000); $("#procbox").innerHTML = procHint(); }
+  } finally { const b = $("#bproc"); if (b) b.disabled = false; }
+}
+function bindDjFallback() {
+  $("#fx-dj")?.addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; try { toast(`Lendo ${f.name}…`, 20000); const r = await SVC.importDataJud(S.cid, f, user()); toast(`DataJud: ${r.datajud.found} de ${r.datajud.queried} processos com retorno.`, 5000); await refresh(); } catch (err) { toast(err.message, 6000); } });
+}
+
+/* ---------------- 2. Upload & DataJud ---------------- */
+function viewUpload() {
+  const c = S.cycle, I = c.inputs, frozen = c.cycle.status === "CLOSED";
+  const ex = I.excel, wg = I.wordGeneral || [], map = c.mapping || [];
+  const line = (ic, cls, title, sub) => `<div class="slot"><div class="ic ${cls}">${ic}</div><div><b>${title}</b><div class="muted" style="font-size:13px">${sub}</div></div><div></div></div>`;
+  $("#page").innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-end"><div><h2>Arquivos &amp; DataJud</h2><p class="lede">O que foi carregado em ${esc(c.cycle.id)} e como a planilha foi lida. Para trocar arquivos ou processar de novo, use a aba Quarters.</p></div><button class="btn" id="bgoq">← Quarters</button></div>
+    <div class="panel">
+      ${line("XLSX", ex ? "ok" : "", "Base Excel do quarter", ex ? `${esc(ex.name)} · ${fmtN(ex.rows, 0)} processos · cabeçalho na linha ${ex.headerRow} · coluna do processo <b>${esc(ex.processColumn.col)}</b> (${esc(ex.processColumn.header)}, via ${esc(ex.processColumn.how)}) · ${fmtTs(ex.at)} por ${esc(ex.by)}` : "pendente")}
+      ${line("BASE", c.baselineFrom && !/planilha/.test(c.baselineFrom) ? "ok" : "", "Quarter anterior (baseline)", esc(c.baselineFrom))}
+      ${line("DOCX", wg.length ? "ok" : "", "Word General", wg.length ? wg.map((w) => `${esc(w.name)} · ${w.scope} · ${w.records} casos · ${w.withRevisions} com marcas de revisão`).join("<br>") : "pendente")}
+      ${line("DOCX", I.wordClosed ? "ok" : "", "Word Closed Cases", I.wordClosed ? `${esc(I.wordClosed.name)} · ${I.wordClosed.records} casos` : "opcional")}
+      ${line("CNJ", c.cycle.datajud ? "dj" : "", "DataJud", `<span id="djline">${djLine()}</span>`)}
+    </div>
+    ${ex && ex.warnings && ex.warnings.length ? `<div class="notice warn"><div><b>Avisos do mapeamento</b><br>${ex.warnings.map(esc).join("<br>")}</div></div>` : ""}
+    ${map.length ? `<div class="panel"><div class="hd"><h3>Mapeamento do modelo</h3><span class="muted" style="font-size:12px">Como cada coluna da planilha foi reconhecida</span><span class="spacer"></span><label class="row" style="font-size:12px"><input type="checkbox" id="showall"> mostrar não mapeadas</label></div>
+      <div class="tw" style="border:0;border-radius:0"><table><thead><tr><th>Campo do sistema</th><th>Coluna</th><th>Cabeçalho na planilha</th><th></th></tr></thead><tbody>
+      ${map.map((m) => `<tr ${!m.col ? 'class="unm"' : ""}><td>${esc(m.label)}${m.required ? ' <span class="muted">*</span>' : ""}</td><td class="mono">${m.col || "—"}</td><td>${esc(m.header || "")}${m.how && m.how !== "cabeçalho" ? ` <span class="pill acc">${esc(m.how)}</span>` : ""}</td><td>${m.col ? '<span class="pill ok">ok</span>' : m.required ? '<span class="pill crit">faltando</span>' : '<span class="pill">opcional</span>'}</td></tr>`).join("")}
+      </tbody></table></div></div>` : ""}
+    <div class="panel"><div class="hd"><h3>Parâmetros do ciclo</h3></div><div class="bd">
+      <form id="fpar" class="row" style="align-items:flex-end">
+        <label class="f">Threshold (USD)<input type="number" id="pt" value="${c.params.threshold}" style="width:130px" ${frozen ? "disabled" : ""}></label>
+        <label class="f">Câmbio BRL/USD<input type="number" step="0.0001" id="pfx" value="${c.params.fx}" style="width:110px" ${frozen ? "disabled" : ""}></label>
+        <label class="f">Materialidade (%)<input type="number" id="pm" value="${Math.round(c.params.materiality * 100)}" style="width:110px" ${frozen ? "disabled" : ""}></label>
+        <label class="f">Tolerância câmbio (%)<input type="number" step="0.1" id="ptol" value="${c.params.fxTol * 100}" style="width:110px" ${frozen ? "disabled" : ""}></label>
+        ${frozen ? "" : `<button class="btn" type="submit">Salvar e reauditar</button>`}
+      </form></div></div>`;
+  $("#bgoq").addEventListener("click", () => go("home"));
+  $("#showall")?.addEventListener("change", (e) => { document.querySelectorAll("tr.unm").forEach((tr) => (tr.hidden = !e.target.checked)); });
+  document.querySelectorAll("tr.unm").forEach((tr) => (tr.hidden = true));
+  $("#fpar")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { await SVC.setParams(S.cid, { user: user(), threshold: $("#pt").value, fx: $("#pfx").value, materiality: +$("#pm").value / 100, fxTol: +$("#ptol").value / 100 }); toast("Parâmetros salvos. Auditoria recalculada."); await refresh(); } catch (err) { toast(err.message); }
+  });
+}
+function djLine() {
+  const c = S.cycle, d = c.cycle.datajud, rq = c.request;
+  const nf = c.djMeta?.notFound || [];
+  const req = rq && rq.status === "pending" ? `<br><span class="pill dj"><span class="dot"></span>${rq.count} processos na fila desde ${fmtTs(rq.at)}</span> <span class="muted">Peça no chat: "atualiza o DataJud do ${esc(S.cid)}".</span>` : "";
+  if (!d) return (c.inputs.excel ? "Ainda sem retorno." : "A fila é montada automaticamente ao importar a planilha.") + req;
+  return `${d.found} de ${d.queried} processos da população com retorno · ${esc(d.source || "")} · ${fmtTs(d.at)}${d.notFound ? ` · <b>${d.notFound} não localizados</b>` : ""}${nf.length ? `<details style="margin-top:4px"><summary class="muted">ver não localizados</summary><div class="mono">${nf.map((x) => fmtCnjJs(x)).join("<br>")}</div></details>` : ""}${req}`;
+}
+function renderUploadJob() { const el = $("#djline"); if (el) el.innerHTML = djLine(); }
+const fmtCnjJs = (d) => (d && d.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d[13]}.${d.slice(14, 16)}.${d.slice(16)}` : d || "—");
+
+/* ---------------- 3. Litigation ---------------- */
+function viewLit() {
+  if (!S.cycle.inputs.excel) { $("#page").innerHTML = `<div class="notice warn">Importe a base na etapa 2.</div>`; return; }
+  const f = S.f.lit;
+  const open = {}; S.audit.issues.forEach((i) => { if (i.status === "Open") { (open[i.cnj] = open[i.cnj] || { C: 0, R: 0, Q: 0 })[i.sev]++; } });
+  const thrs = ["Above Threshold", "Below Threshold", "Crossed Threshold – IN", "Crossed Threshold – OUT"];
+  const cnt = (t) => S.audit.cases.filter((x) => x.thr === t).length;
+  const q = f.q.toLowerCase();
+  const list = S.audit.cases.filter((x) =>
+    (!f.emp || x.empresa === f.emp) && (!f.thr || x.thr === f.thr) &&
+    (!f.only || (f.only === "issues" ? open[x.cnj] && (open[x.cnj].C || open[x.cnj].R || open[x.cnj].Q) : f.only === "nodj" ? !x.djFound : f.only === "noword" ? x.report === "Não está no Word" : true)) &&
+    (!q || (x.cnj + " " + x.cnjFmt + " " + (x.autor || "")).toLowerCase().includes(q))
+  ).sort((a, b) => (b.usdCur || 0) - (a.usdCur || 0));
+  $("#page").innerHTML = `
+    <div><h2>Litigation</h2><p class="lede">População reportável do quarter: reportados agora ou no anterior, e todos os casos presentes nos Words. Threshold ${fmtUSD(S.cycle.params.threshold)} a ${S.cycle.params.fx} BRL/USD.</p></div>
+    <div class="strip">${thrs.map((t) => `<div><b>${cnt(t)}</b><span>${t}</span></div>`).join("")}<div><b>${S.audit.cases.filter((x) => !x.djFound).length}</b><span>Sem retorno do DataJud</span></div></div>
+    <div class="row">
+      <input type="search" id="lq" placeholder="Buscar CNJ ou parte" value="${esc(f.q)}" style="width:240px">
+      <select id="lemp"><option value="">Crop e Seeds</option><option ${f.emp === "Crop" ? "selected" : ""}>Crop</option><option ${f.emp === "Seeds" ? "selected" : ""}>Seeds</option></select>
+      <select id="lthr"><option value="">Todos os thresholds</option>${thrs.map((t) => `<option ${f.thr === t ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <select id="lonly"><option value="">Todos</option><option value="issues" ${f.only === "issues" ? "selected" : ""}>Com inconsistência aberta</option><option value="noword" ${f.only === "noword" ? "selected" : ""}>Reportável fora do Word</option><option value="nodj" ${f.only === "nodj" ? "selected" : ""}>Sem DataJud</option></select>
+      <span class="muted">${list.length} processos</span>
+    </div>
+    <div class="tw"><table><thead><tr><th>Processo</th><th>Parte</th><th>Emp.</th><th>Fase (Excel)</th><th>Stage (Word)</th><th>Relatório</th><th class="num">USD</th><th>Threshold</th><th>Risco</th><th class="num">Provisão BRL</th><th>Latest Relevant Proceeding (DataJud)</th><th>Abertas</th></tr></thead>
+    <tbody id="tlit">${list.map((x) => { const o = open[x.cnj] || { C: 0, R: 0, Q: 0 }; return `<tr class="click" data-cnj="${x.cnj}">
+      <td class="mono">${x.cnjFmt}</td><td>${esc(x.autor || "—")}</td><td>${esc(x.empresa)}</td><td>${esc(x.posicao || "—")}</td><td>${esc(x.wordStage || "—")}</td>
+      <td>${x.report === "Não está no Word" ? `<span class="pill crit">fora do Word</span>` : esc(x.report)}</td>
+      <td class="num">${fmtN(x.usdCur, 0)}</td><td>${/IN|OUT/.test(x.thr) ? `<span class="pill rel">${esc(x.thr.replace("Crossed Threshold – ", "Crossed "))}</span>` : `<span class="muted">${esc(x.thr.replace(" Threshold", ""))}</span>`}</td>
+      <td>${esc(x.prob || "—")}</td><td class="num">${fmtN(x.vProv)}</td>
+      <td class="cell-src">${x.djLastRel ? `<span class="mono">${fmtDate(x.djLastRel.d)}</span> ${esc(x.djLastRel.c)}<br><span class="muted" style="font-size:12px">${esc(x.djLastRel.n)}</span>` : x.djFound ? '<span class="muted">sem andamento relevante</span>' : x.djNotFound ? '<span class="pill">não localizado</span>' : '<span class="muted">—</span>'}</td>
+      <td style="white-space:nowrap">${o.C ? `<span class="pill crit">${o.C}</span> ` : ""}${o.R ? `<span class="pill rel">${o.R}</span> ` : ""}${o.Q ? `<span class="pill qual">${o.Q}</span>` : ""}${!o.C && !o.R && !o.Q ? '<span class="pill ok">ok</span>' : ""}</td></tr>`; }).join("")}</tbody></table></div>`;
+  const upd = () => { f.q = $("#lq").value; f.emp = $("#lemp").value; f.thr = $("#lthr").value; f.only = $("#lonly").value; viewLit(); const el = $("#lq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  $("#lq").addEventListener("input", debounce(upd, 250));
+  ["#lemp", "#lthr", "#lonly"].forEach((s) => $(s).addEventListener("change", upd));
+  $("#tlit").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-cnj]"); if (tr) openCase(tr.dataset.cnj); });
+}
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+/* ---------------- 4. Inconsistências ---------------- */
+function viewInc() {
+  if (!S.cycle.inputs.excel) { $("#page").innerHTML = `<div class="notice warn">Importe a base na etapa 2.</div>`; return; }
+  const f = S.f.inc, st = S.audit.stats;
+  const q = f.q.toLowerCase();
+  const list = S.audit.issues.filter((i) =>
+    (!f.sev || i.sev === f.sev) && (!f.rule || i.rule === f.rule) && (!f.status || i.status === f.status) && (!f.block || (f.block === "y" ? i.block : !i.block)) &&
+    (!q || [i.cnj, fmtCnjJs(i.cnj), i.plaintiff, i.reason, i.field].join(" ").toLowerCase().includes(q)));
+  const rules = S.meta.rules;
+  $("#page").innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-end"><div><h2>Inconsistências</h2><p class="lede">Onde a base precisa de julgamento humano. Críticas bloqueiam o fechamento; nada é alterado sem decisão registrada.</p></div>
+      <div class="row"><button class="btn" id="brules">Ver as 26 regras</button></div></div>
+    <div class="strip">
+      <div class="crit"><b>${st.bySev.C.open}</b><span>Critical abertas · ${st.bySev.C.done} validadas</span></div>
+      <div class="rel"><b>${st.bySev.R.open}</b><span>Relevant abertas · ${st.bySev.R.done} validadas</span></div>
+      <div class="qual"><b>${st.bySev.Q.open}</b><span>Data Quality abertas · ${st.bySev.Q.done} validadas</span></div>
+      <div class="ok"><b>${st.total - st.open}</b><span>Validadas de ${st.total}</span></div>
+    </div>
+    <div class="chips" id="rchips">${rules.filter((r) => st.byRule[r.id]).map((r) => `<button class="chip" aria-pressed="${f.rule === r.id}" data-r="${r.id}" title="${esc(r.name)}"><span class="dot" style="color:var(--${SEVC[r.sev]})"></span>${r.id} ${esc(r.name)} <b>${st.byRule[r.id].open}/${st.byRule[r.id].open + st.byRule[r.id].done}</b></button>`).join("")}</div>
+    <div class="row">
+      <input type="search" id="iq" placeholder="Buscar processo, parte ou motivo" value="${esc(f.q)}" style="width:260px">
+      <select id="isev"><option value="">Todas as severidades</option>${["C", "R", "Q"].map((s) => `<option value="${s}" ${f.sev === s ? "selected" : ""}>${SEVL[s]}</option>`).join("")}</select>
+      <select id="ist"><option value="">Abertas e validadas</option><option ${f.status === "Open" ? "selected" : ""} value="Open">Abertas</option><option ${f.status === "Validated" ? "selected" : ""} value="Validated">Validadas</option></select>
+      <select id="ibl"><option value="">Bloqueadoras ou não</option><option value="y" ${f.block === "y" ? "selected" : ""}>Só bloqueadoras</option><option value="n" ${f.block === "n" ? "selected" : ""}>Não bloqueadoras</option></select>
+      <span class="muted">${list.length} itens</span>
+    </div>
+    <div class="tw"><table><thead><tr><th></th><th>Processo / Parte</th><th>ID</th><th>Campo</th><th>Previous Quarter</th><th>Current Excel</th><th>Word</th><th>DataJud / Latest Proceeding</th><th>Reason</th><th>Suggested Action</th><th>Status</th></tr></thead>
+    <tbody id="tinc">${list.slice(0, 600).map((i) => `<tr class="click" data-cnj="${esc(i.cnj && /^\d{5,25}$/.test(i.cnj) ? i.cnj : "")}" data-key="${esc(i.key)}">
+      <td class="sev ${i.sev}"></td>
+      <td><span class="mono">${fmtCnjJs(i.cnj)}</span><br><span style="font-size:12px">${esc(i.plaintiff || "")}</span></td>
+      <td style="white-space:nowrap"><b class="mono">${i.rule}</b><br>${sevPill(i.sev)}</td>
+      <td>${esc(i.field || "")}</td>
+      <td class="cell-src">${esc(i.prev || "—")}</td><td class="cell-src">${esc(i.excel || "—")}</td><td class="cell-src"><div class="clip">${esc(i.word || "—")}</div></td>
+      <td class="cell-src">${i.datajud ? esc(i.datajud) + "<br>" : ""}<span class="muted" style="font-size:12px">${esc(i.latest || (i.datajud ? "" : "—"))}</span></td>
+      <td class="wrapcell">${esc(i.reason)}</td><td class="cell-src">${esc(i.action || "")}</td>
+      <td>${i.status === "Open" ? '<span class="pill">Open</span>' : `<span class="pill ok">Validated</span><br><span class="muted" style="font-size:12px">${esc(i.decision.decision)} · ${esc(i.decision.by)}</span>`}</td></tr>`).join("")}</tbody></table></div>
+    ${list.length > 600 ? `<p class="muted">Mostrando 600 de ${list.length}. Use os filtros.</p>` : ""}`;
+  const upd = () => { f.q = $("#iq").value; f.sev = $("#isev").value; f.status = $("#ist").value; f.block = $("#ibl").value; viewInc(); const el = $("#iq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  $("#iq").addEventListener("input", debounce(upd, 250));
+  ["#isev", "#ist", "#ibl"].forEach((s) => $(s).addEventListener("change", upd));
+  $("#rchips").addEventListener("click", (e) => { const b = e.target.closest("[data-r]"); if (!b) return; f.rule = f.rule === b.dataset.r ? "" : b.dataset.r; viewInc(); });
+  $("#tinc").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-cnj]"); if (!tr) return; if (!tr.dataset.cnj) { toast("Registro sem número de processo válido: corrija na origem e reimporte."); return; } openCase(tr.dataset.cnj, tr.dataset.key); });
+  $("#brules").addEventListener("click", showRules);
+  document.querySelectorAll("[data-x]").forEach((b) => b.addEventListener("click", () => download(b.dataset.x)));
+}
+function showRules() {
+  const R = S.meta.rules;
+  $("#page").innerHTML = `<div class="row" style="justify-content:space-between"><div><h2>Regras de auditoria v${S.meta.engine}</h2><p class="lede">SE → ENTÃO → severidade → evidência → ação permitida. "Review Required" nunca afirma que a provisão está errada: pede revisão.</p></div><button class="btn" id="back">← Inconsistências</button></div>
+  <div class="panel"><div class="bd">${R.map((r) => `<div class="rulecard"><div><b class="mono">${r.id}</b><br>${sevPill(r.sev)}${r.block ? '<br><span class="pill crit" style="margin-top:4px">bloqueia</span>' : ""}</div><div style="display:grid;gap:6px"><b>${esc(r.name)}</b>
+    <div class="kv"><dt>SE</dt><dd>${esc(r.se)}</dd><dt>ENTÃO</dt><dd>${esc(r.entao)}</dd><dt>Evidência</dt><dd>${esc(r.evid)}</dd><dt>Fontes</dt><dd>${r.src.map(esc).join(" · ")}</dd><dt>Ações</dt><dd>${r.acoes.map((a) => `<span class="pill">${esc(S.meta.decisions[a])}</span>`).join(" ")}</dd></div></div></div>`).join("")}</div></div>`;
+  $("#back").addEventListener("click", () => viewInc());
+}
+
+/* ---------------- 5. Case Review ---------------- */
+async function openCase(cnj, key) {
+  S.caseCnj = cnj; S.caseKey = key || null;
+  go("case");
+}
+async function viewCase() {
+  if (!S.caseCnj) {
+    const first = S.audit?.issues.find((i) => i.status === "Open");
+    if (!first) { $("#page").innerHTML = `<div class="notice">Selecione um processo na tela Litigation ou Inconsistências.</div>`; return; }
+    S.caseCnj = first.cnj;
+  }
+  $("#page").innerHTML = `<p class="muted">Carregando ${fmtCnjJs(S.caseCnj)}…</p>`;
+  let d;
+  try { d = await SVC.caseDetail(S.cid, S.caseCnj); } catch (e) { $("#page").innerHTML = `<div class="notice crit">${esc(e.message)}</div>`; return; }
+  S.caseData = d;
+  const ex = d.excel[0] || {}, w = d.word.find((x) => x.kind === "general") || d.word[0] || {}, b = d.baseline || {}, sm = d.djSummary, frozen = S.cycle.cycle.status === "CLOSED";
+  const flagged = new Set(d.issues.filter((i) => i.status === "Open").map((i) => i.field));
+  const rows = [
+    ["Plaintiff", b.autor, ex.autor, w.plaintiff, null],
+    ["Defendant", b.reu, ex.reu ? `${ex.empresa} · ${ex.reu}` : ex.empresa, w.defendant, sm ? sm.lastAny && d.datajud[0].orgao : null],
+    ["Case Stage", b.posicao, ex.posicao, w.stage, d.djStage ? `${d.djStage} (graus ${sm.graus.join(", ")})` : null],
+    ["Date of First Court Filing", null, ex.distrib ? fmtDate(ex.distrib) : null, w.filing, sm && sm.ajuiz ? `${sm.ajuiz.slice(6, 8)}/${sm.ajuiz.slice(4, 6)}/${sm.ajuiz.slice(0, 4)}` : null],
+    ["Financial Relief BRL", b.valorCur != null ? fmtN(b.valorCur) : ex.valorPrev != null ? fmtN(ex.valorPrev) + " (col. anterior)" : null, fmtN(ex.valorCur), w.reliefBRL, null],
+    ["Financial Relief USD", b.usdCur != null ? fmtN(b.usdCur) : ex.usdPrev != null ? fmtN(ex.usdPrev) : null, fmtN(ex.usdCur), w.reliefUSD, null],
+    ["Risk of Loss", b.prob, ex.prob, w.risk, null],
+    ["Loss Reserve", b.vProv != null ? fmtN(b.vProv) : null, ex.vProv != null ? fmtN(ex.vProv) : null, w.reserve, null],
+    ["Reporting", b.repCur ? `${b.repCur} · ${b.litCur}` : ex.repPrev ? `${ex.repPrev} · ${ex.litPrev}` : null, ex.repCur ? `${ex.repCur} · ${ex.litCur} · ${ex.achCur || ""}` : null, w.kind ? (w.kind === "closed" ? "Closed Cases" : "General") : "ausente", null],
+    ["Date of Last Update", null, ex.dataAtual ? fmtDate(ex.dataAtual) : null, w.lastUpdate, sm && sm.lastAny ? `${fmtDate(sm.lastAny.d)} · ${sm.lastAny.n}` : null],
+  ];
+  const cell = (v) => `<div>${v === null || v === undefined || v === "" || v === "—" ? '<span class="muted">—</span>' : esc(v)}</div>`;
+  const q = S.cycle.params;
+  const cutoff = (() => { const m = /Q(\d)-(\d{4})/.exec(S.cid); const e = new Date(Date.UTC(+m[2], (+m[1] - 1) * 3, 0)); return e.toISOString().slice(0, 10); })();
+  const rel = sm ? sm.rel.slice().reverse() : [];
+  $("#page").innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><div class="row"><h2 class="mono" style="font-family:var(--mono);font-size:18px">${d.cnjFmt}</h2>${ex.empresa ? `<span class="pill">${esc(ex.empresa)}</span>` : ""}${ex.statusCur && /novo/i.test(ex.statusCur) ? '<span class="pill acc">Novo</span>' : ""}</div>
+      <p class="lede">${esc(ex.autor || w.caseName || "")} · ${esc(ex.vara || w.venue || "")} ${esc(ex.comarca || "")}</p></div>
+      <div class="row"><button class="btn sm" id="cprev" ${d.prev ? "" : "disabled"}>← Anterior</button><button class="btn sm" id="cnext" ${d.next ? "" : "disabled"}>Próximo →</button></div>
+    </div>
+    <div class="tw" style="border:0;background:transparent"><div class="cmp">
+      <div class="h">Campo</div><div class="h">Previous Quarter</div><div class="h">Current Excel</div><div class="h">Word</div><div class="h" style="color:var(--dj)">DataJud</div>
+      ${rows.map((r) => `<div class="k ${[...flagged].some((f) => f && f.startsWith(r[0].split(" ")[0])) ? "flag" : ""}">${esc(r[0])}</div>${cell(r[1])}${cell(r[2])}${cell(r[3])}${cell(r[4])}`).join("")}
+    </div></div>
+    <div class="grid g2">
+      <div class="panel"><div class="hd"><h3>Inconsistências deste processo</h3><span class="spacer"></span><span class="muted">${d.issues.filter((i) => i.status === "Open").length} abertas</span></div>
+        <div class="bd" style="display:flex;flex-direction:column;gap:12px">${d.issues.length ? d.issues.map((i) => issueCard(i, frozen)).join("") : '<p class="muted">Nenhuma inconsistência.</p>'}</div></div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="panel"><div class="hd"><h3>DataJud</h3><span class="spacer"></span>${sm ? `<span class="pill dj">${sm.graus.join(" · ")}</span>` : ""}</div><div class="bd">
+          ${sm ? `<dl class="kv"><dt>Latest Proceeding</dt><dd>${sm.lastAny ? `<span class="mono">${fmtDate(sm.lastAny.d)}</span> ${esc(sm.lastAny.n)} <span class="muted">(${esc(sm.lastAny.grau)})</span>` : "—"}</dd>
+            <dt>Latest Relevant</dt><dd>${sm.lastRel ? `<span class="mono">${fmtDate(sm.lastRel.d)}</span> ${esc(sm.lastRel.n)} <span class="muted">(${esc(sm.lastRel.grau)})</span>` : "—"}</dd>
+            <dt>Órgão</dt><dd>${d.datajud.map((x) => `${esc(x.grau)}: ${esc(x.orgao || "")}`).join("<br>")}</dd><dt>Classe</dt><dd>${esc(d.datajud[0].classe || "")}</dd></dl>
+            <h3 style="margin:14px 0 8px">Andamentos relevantes</h3>
+            <div class="timeline">${rel.slice(0, 14).map((m) => `<div class="ev ${m.d > cutoff ? "new" : ""}"><span class="mono">${fmtDate(m.d)}</span> · <b>${esc(labelRel(m.c))}</b> <span class="muted">${esc(m.grau)}</span><br><span style="font-size:12px">${esc(m.n)}</span></div>`).join("") || '<p class="muted">Nenhum andamento classificado como relevante.</p>'}</div>
+            <p class="muted" style="font-size:12px;margin-top:6px">Ponto cheio = depois do último fechamento (${fmtDate(cutoff)}).</p>`
+            : d.djNotFound ? `<div class="notice warn">Número não localizado no DataJud. Confirme o CNJ ou o tribunal.</div>` : `<p class="muted">Sem consulta ao DataJud para este processo. Rode a consulta na etapa 2.</p>`}
+        </div></div>
+        <div class="panel"><div class="hd"><h3>Case Description &amp; Status (Word)</h3></div><div class="bd">${w.status ? `<div class="narr">${esc(w.status)}</div>` : '<p class="muted">Caso ausente do Word.</p>'}</div></div>
+        ${d.trail.length ? `<div class="panel"><div class="hd"><h3>Audit trail do processo</h3></div><div class="bd" style="display:flex;flex-direction:column;gap:8px">${d.trail.slice().reverse().map((t) => `<div style="font-size:13px"><span class="mono">${fmtTs(t.ts)}</span> · <b>${esc(t.rule || "")}</b> ${esc(t.decision || "")} · ${esc(t.user || "")}<br><span class="muted">${esc(t.new || "")}${t.justification ? " · " + esc(t.justification) : ""}</span></div>`).join("")}</div></div>` : ""}
+      </div>
+    </div>`;
+  $("#cprev").addEventListener("click", () => d.prev && openCase(d.prev));
+  $("#cnext").addEventListener("click", () => d.next && openCase(d.next));
+  document.querySelectorAll("form.dec").forEach(bindDecision);
+  document.querySelectorAll("[data-reopen]").forEach((bt) => bt.addEventListener("click", async () => {
+    try { await SVC.decide(S.cid, withUser({ key: bt.dataset.reopen, decision: "REOPEN" })); toast("Decisão reaberta."); await loadCycle(S.cid); renderTopbar(); renderCounts(); viewCase(); } catch (e) { toast(e.message); }
+  }));
+  if (S.caseKey) { const el = document.querySelector(`[data-ikey="${CSS.escape(S.caseKey)}"]`); if (el) el.scrollIntoView({ block: "center" }); S.caseKey = null; }
+}
+const REL_LABEL = { transito: "Trânsito em julgado", baixa: "Baixa/Arquivamento", acordo: "Acordo", pagamento: "Pagamento", calculos: "Cálculos/Liquidação", execucao: "Execução", acordao: "Acórdão", sentenca: "Sentença/Julgamento", recurso: "Recurso" };
+const labelRel = (c) => REL_LABEL[c] || c;
+
+function issueCard(i, frozen) {
+  const R = S.meta.rules.find((r) => r.id === i.rule);
+  const D = S.meta.decisions;
+  const done = i.status === "Validated";
+  const src = [["Anterior", i.prev], ["Excel", i.excel], ["Word", i.word], ["DataJud", i.datajud], ["Latest", i.latest], ["Sugerido", i.suggested]].filter((x) => x[1]);
+  return `<div class="issue ${i.sev} ${done ? "done" : ""}" data-ikey="${esc(i.key)}">
+    <div class="row"><b class="mono">${i.rule}</b>${sevPill(i.sev)}${i.block ? '<span class="pill crit">bloqueia</span>' : ""}<span class="spacer"></span>${done ? '<span class="pill ok">Validated</span>' : '<span class="pill">Open</span>'}</div>
+    <div><b>${esc(R.name)}</b> · <span class="muted">${esc(i.field || "")}</span></div>
+    <p>${esc(i.reason)}</p>
+    ${src.length ? `<dl class="kv">${src.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+    <p class="muted" style="font-size:12px">Ação sugerida: ${esc(i.action || "")}</p>
+    ${done ? `<div class="notice" style="background:var(--ok-soft)"><div><b>${esc(D[i.decision.decision])}</b>${i.decision.value ? ` = ${esc(i.decision.value)}` : ""}<br>${esc(i.decision.justification || "")}<br><span class="muted" style="font-size:12px">${esc(i.decision.by)} · ${fmtTs(i.decision.at)}</span></div></div>${frozen ? "" : `<div><button class="btn sm" data-reopen="${esc(i.key)}">Reabrir</button></div>`}`
+    : frozen ? "" : `<form class="dec" data-key="${esc(i.key)}" data-sev="${i.sev}" style="display:flex;flex-direction:column;gap:8px">
+      <div class="seg" role="radiogroup">${R.acoes.map((a, k) => `<label><input type="radio" name="d-${esc(i.key)}" value="${a}" ${k === 0 ? "checked" : ""}>${esc(D[a])}</label>`).join("")}</div>
+      <input type="text" name="value" placeholder="Valor corrigido" value="${esc(i.suggested || "")}" ${R.acoes[0] === "MANUAL" ? "" : "hidden"} id="v-${esc(i.key)}">
+      <textarea name="just" placeholder="Justificativa${i.sev === "C" ? " (obrigatória em Critical)" : ""}" id="j-${esc(i.key)}"></textarea>
+      <div><button class="btn primary sm" type="submit">Validar decisão</button></div>
+    </form>`}
+  </div>`;
+}
+function bindDecision(form) {
+  const val = form.querySelector('[name="value"]');
+  form.addEventListener("change", (e) => { if (e.target.type === "radio") val.hidden = e.target.value !== "MANUAL"; });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const decision = form.querySelector("input[type=radio]:checked").value;
+    try {
+      await SVC.decide(S.cid, withUser({ key: form.dataset.key, decision, value: val.value, justification: form.querySelector("textarea").value }));
+      toast("Decisão registrada no audit trail.");
+      await loadCycle(S.cid); renderTopbar(); renderCounts(); viewCase();
+    } catch (err) { toast(err.message, 5000); }
+  });
+}
+
+/* ---------------- 6. Quarter Close ---------------- */
+function viewClose() {
+  const c = S.cycle, st = c.stats, I = c.inputs, closed = c.cycle.status === "CLOSED";
+  const chk = (ok, warn, title, sub) => `<div class="check"><span class="m ${ok ? "y" : warn ? "w" : "n"}">${ok ? "✓" : warn ? "!" : "×"}</span><div><b>${title}</b><div class="muted" style="font-size:13px">${sub}</div></div></div>`;
+  const dj = c.cycle.datajud;
+  const migr = (S.audit?.issues || []).filter((i) => i.rule === "AUD-023");
+  $("#page").innerHTML = `
+    <div><h2>Quarter Close</h2><p class="lede">O fechamento só é liberado sem inconsistências bloqueadoras abertas. Ao fechar: congela a base validada, gera Excel, Word com marcas de revisão e relatório de auditoria, salva no histórico e vira baseline do próximo quarter.</p></div>
+    ${closed ? `<div class="notice" style="background:var(--ok-soft)"><div><b>Fechado em ${fmtTs(c.cycle.closed.at)} por ${esc(c.cycle.closed.by)}.</b><br>Base validada congelada e usada como baseline de ${nextOf(S.cid)}. Baixe as saídas ao lado.</div></div>` : ""}
+    <div class="grid g2">
+      <div class="panel"><div class="hd"><h3>Checklist</h3></div><div class="bd">
+        ${chk(!!I.excel, false, "Excel do quarter importado", I.excel ? `${I.excel.rows} processos · ${esc(I.excel.name)}` : "pendente")}
+        ${chk((I.wordGeneral || []).length > 0, true, "Word do quarter anterior importado", (I.wordGeneral || []).length ? I.wordGeneral.map((w) => `${w.scope}: ${w.records} casos`).join(" · ") : "sem Word: o relatório com Track Changes não será gerado")}
+        ${chk(!!dj && !dj.errors, !!dj, "DataJud consultado", dj ? `${dj.found}/${dj.queried} localizados em ${fmtTs(dj.at)}${dj.errors ? ` · ${dj.errors} lotes com erro` : ""}` : "pendente")}
+        ${chk(st.blocking === 0, false, "Inconsistências bloqueadoras resolvidas", `${st.blocking} em aberto (Critical)`)}
+        ${chk(st.open === 0, true, "Demais inconsistências", `${st.open - st.blocking} Relevant/Quality abertas (não bloqueiam)`)}
+        ${chk(migr.every((i) => i.status === "Validated"), true, "Migrações GENERAL → CLOSED decididas", `${migr.length} candidatos · aceitos vão para a lista de Closed do próximo ciclo`)}
+      </div></div>
+      <div class="panel"><div class="hd"><h3>Exportar</h3><span class="spacer"></span>${closed ? '<span class="pill ok">liberado</span>' : '<span class="muted" style="font-size:12px">liberado depois do CLOSE QUARTER</span>'}</div><div class="bd" style="display:flex;flex-direction:column;gap:10px">
+        <div class="row"><button class="btn" data-x="validated" ${closed ? "" : "disabled"}>Base validada (.xlsx)</button><span class="muted" style="font-size:12px">layout do modelo com as células ajustadas pelas decisões + aba VALIDATION_LOG (antes/depois)</span></div>
+        <div class="row"><button class="btn" data-x="word" ${closed && (I.wordGeneral || []).length ? "" : "disabled"}>Word com Track Changes (.docx)</button><span class="muted" style="font-size:12px">Stage, valores, risco, provisão, filing, last update e andamentos relevantes do DataJud no Status Update</span></div>
+        <div class="row"><button class="btn" data-x="word-changes" ${closed ? "" : "disabled"}>Lista de alterações do Word (.xlsx)</button></div>
+        <div class="row"><button class="btn" data-x="audit" ${closed ? "" : "disabled"}>Relatório de auditoria (.xlsx)</button></div>
+        <div class="row"><button class="btn" data-x="trail" ${closed ? "" : "disabled"}>Audit trail (.xlsx)</button></div>
+        <hr style="border:0;border-top:1px solid var(--line-2);width:100%">
+        ${closed ? "" : `<div id="closebox"><button class="btn primary" id="bclose" ${st.blocking ? "disabled" : ""}>CLOSE QUARTER</button> ${st.blocking ? `<span class="muted" style="font-size:12px">Libera quando as ${st.blocking} bloqueadoras forem resolvidas.</span>` : ""}</div>`}
+      </div></div>
+    </div>
+    <div class="notice"><div>O texto já existente do Status Update é preservado: os andamentos relevantes do DataJud entram ao final como inserção rastreada (AUD-021). Aceite o texto sugerido, edite em Manual correction ou mantenha sem inserção com Keep/Justified.</div></div>`;
+  document.querySelectorAll("[data-x]").forEach((b) => b.addEventListener("click", () => download(b.dataset.x)));
+  $("#bclose")?.addEventListener("click", () => {
+    $("#closebox").innerHTML = `<div class="notice crit" style="flex-direction:column"><b>Confirmar fechamento de ${S.cid}?</b><span>A base e as decisões ficam congeladas e passam a ser baseline de ${nextOf(S.cid)}.</span><div class="row"><button class="btn primary" id="bconf">Fechar ${S.cid}</button><button class="btn" id="bcanc">Cancelar</button></div></div>`;
+    $("#bcanc").addEventListener("click", viewClose);
+    $("#bconf").addEventListener("click", async () => { try { await SVC.close(S.cid, withUser()); toast(`${S.cid} fechado.`, 5000); await refresh(); } catch (e) { toast(e.message, 6000); } });
+  });
+}
+const nextOf = (id) => { const m = /Q(\d)-(\d{4})/.exec(id); let q = +m[1] + 1, y = +m[2]; if (q > 4) { q = 1; y++; } return `Q${q}-${y}`; };
+
+async function download(kind) {
+  try {
+    toast("Gerando arquivo…", 20000);
+    const r = await SVC.download(S.cid, kind);
+    toast(r.status === "declined" ? "Download cancelado." : `${r.filename} pronto.`);
+  } catch (e) { toast(e.code === "declined" ? "Download cancelado." : e.message || String(e), 6000); }
+}
+
+boot().catch((e) => { $("#page").innerHTML = `<div class="notice crit">Não consegui carregar: ${esc(e.message)}</div>`; });
+
+})();
+</script>
+</body>
+</html>
