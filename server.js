@@ -307,6 +307,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (litigation.handle(req, res)) return;
+     if (req.method === "GET" && req.url === "/validador-relatorio") {
+     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+     res.end(fs.readFileSync(path.join(__dirname, "public", "validador-relatorio.html")));
+     return;
+   }
 
   if (req.method === "GET" && req.url === "/") {
     const file = fs.readFileSync(path.join(__dirname, "public", "index.html"));
