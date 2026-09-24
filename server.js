@@ -305,12 +305,12 @@ const server = http.createServer((req, res) => {
     res.end("Autenticação necessária.");
     return;
   }
-
-  if (litigation.handle(req, res)) return;
-     if (req.method === "GET" && req.url === "/validador-relatorio") {
-     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-     res.end(fs.readFileSync(path.join(__dirname, "public", "validador-relatorio.html")));
-     return;
+if (litigation.handle(req, res)) return;
+const pagina = /^\/([a-z0-9-]+)$/.exec(req.url);
+if (req.method === "GET" && pagina && fs.existsSync(path.join(__dirname, "public", pagina[1] + ".html"))) {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(fs.readFileSync(path.join(__dirname, "public", pagina[1] + ".html")));
+  return;
    }
 
   if (req.method === "GET" && req.url === "/") {
