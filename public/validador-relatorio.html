@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validador de Relatório</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --ground:#F3F5F2; --surface:#FFFFFF; --sunk:#E9EDE8; --ink:#17211D; --ink-2:#44534C; --muted:#6B7A72; --line:#D6DDD8; --line-2:#E4E9E5;
+  --accent:#0D6A58; --accent-ink:#FFFFFF; --accent-soft:#DDEFE9;
+  --crit:#B3261E; --crit-soft:#FBE7E5; --rel:#B45F06; --rel-soft:#FCEBD7; --info:#2F5DA8; --info-soft:#E3ECFA; --ok:#1F7A3E; --ok-soft:#DDF2E3;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --cond:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --ground:#0E1412; --surface:#151D1A; --sunk:#1B2521; --ink:#E4EBE7; --ink-2:#BAC7C0; --muted:#8C9C94; --line:#2A3631; --line-2:#222C28;
+  --accent:#43B79D; --accent-ink:#06201A; --accent-soft:#16342C;
+  --crit:#F2877F; --crit-soft:#3A1917; --rel:#F0A55A; --rel-soft:#382611; --info:#8DB0EE; --info-soft:#1A2640; --ok:#6CCB8C; --ok-soft:#14301F;}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --ground:#0E1412; --surface:#151D1A; --sunk:#1B2521; --ink:#E4EBE7; --ink-2:#BAC7C0; --muted:#8C9C94; --line:#2A3631; --line-2:#222C28;
+  --accent:#43B79D; --accent-ink:#06201A; --accent-soft:#16342C;
+  --crit:#F2877F; --crit-soft:#3A1917; --rel:#F0A55A; --rel-soft:#382611; --info:#8DB0EE; --info-soft:#1A2640; --ok:#6CCB8C; --ok-soft:#14301F;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:14px/1.45 var(--sans)}
+[hidden]{display:none!important}
+a{color:var(--accent)}
+header{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--ground) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
+.brand{font:700 20px/1 var(--cond);letter-spacing:.01em}
+.brand small{display:block;font:500 11px var(--sans);color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+.spacer{flex:1}
+.who{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+.who input{width:140px}
+main{padding:20px 24px 60px;max-width:1440px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h2{font:600 17px/1.2 var(--cond);margin:0;letter-spacing:.01em}
+h3{font:600 12px/1.2 var(--cond);margin:0;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.mono{font-family:var(--mono);font-size:12.5px}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .n{font:600 11px var(--mono);color:var(--accent);letter-spacing:.04em}
+.card .big{font:600 15px/1.3 var(--sans);overflow-wrap:anywhere}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,.btn{font:500 13px var(--sans);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--r);padding:7px 12px;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+button:hover{background:var(--sunk)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.primary:hover{filter:brightness(1.08)}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,select,textarea{font:14px var(--sans);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:6px 9px;min-height:34px}
+textarea{width:100%;min-height:64px;resize:vertical}
+.bar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.notice{border-radius:var(--r);padding:10px 12px;font-size:13px;border:1px solid var(--line);background:var(--sunk)}
+.notice.warn{background:var(--rel-soft);border-color:color-mix(in srgb,var(--rel) 35%,transparent)}
+.notice.err{background:var(--crit-soft);border-color:color-mix(in srgb,var(--crit) 35%,transparent)}
+.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px;min-height:auto}
+.kpi b{font:600 26px/1.1 var(--cond);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--muted)}
+.kpi[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.kpi.e b{color:var(--crit)} .kpi.a b{color:var(--rel)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.filters input[type=search]{flex:1;min-width:180px}
+.layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.panel>.hd{padding:12px 14px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rules{list-style:none;margin:0;padding:6px;max-height:70vh;overflow:auto}
+.rules li button{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;width:100%;padding:8px;border-radius:var(--r)}
+.rules li button:hover{background:var(--sunk)}
+.rules li button[aria-pressed="true"]{background:var(--accent-soft)}
+.rules li button:focus-visible{outline:2px solid var(--accent)}
+.rules .c{font:600 13px var(--mono);font-variant-numeric:tabular-nums}
+.sev{font:600 10.5px var(--mono);letter-spacing:.04em;border-radius:3px;padding:2px 5px;white-space:nowrap}
+.sev.E{background:var(--crit-soft);color:var(--crit)} .sev.A{background:var(--rel-soft);color:var(--rel)} .sev.I{background:var(--info-soft);color:var(--info)}
+.st{font-size:11.5px;border-radius:10px;padding:2px 8px;white-space:nowrap;background:var(--sunk);color:var(--ink-2)}
+.st.ok{background:var(--ok-soft);color:var(--ok)} .st.j{background:var(--info-soft);color:var(--info)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font:600 11px var(--cond);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);position:sticky;top:57px;background:var(--surface)}
+.tbl td{padding:9px 10px;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr.click{cursor:pointer}
+.tbl tr.click:hover td{background:var(--sunk)}
+.tbl .what{max-width:520px}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 12px}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+/* gaveta */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(980px,100vw);background:var(--ground);z-index:21;overflow:auto;border-left:1px solid var(--line);display:flex;flex-direction:column}
+.drawer .hd{position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:10px;align-items:center;z-index:2}
+.drawer .bd{padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+.cmp{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.cmp th,.cmp td{padding:7px 10px;border-bottom:1px solid var(--line-2);text-align:left;vertical-align:top;font-size:13px}
+.cmp th{font:600 11px var(--cond);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.cmp td:first-child{color:var(--muted);width:200px}
+.cmp tr.hit td{background:var(--rel-soft)}
+.cmp tr.diff td:nth-child(2){font-weight:600}
+.iss{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.iss .fix{background:var(--accent-soft);border-radius:var(--r);padding:8px 10px;font-size:13px}
+.mov{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.mov li{display:grid;grid-template-columns:92px 44px 1fr;gap:8px}
+.mov .rel{font-weight:600}
+dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);max-width:min(900px,94vw);padding:0}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog .hd{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;position:sticky;top:0;background:var(--surface)}
+dialog .bd{padding:14px 18px;max-height:75vh;overflow:auto}
+.cat{margin:14px 0 6px}
+.rulecat{width:100%;border-collapse:collapse}
+.rulecat td{padding:8px 6px;border-bottom:1px solid var(--line-2);vertical-align:top;font-size:13px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:10px 14px;border-radius:var(--r);z-index:40;font-size:13px}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.layout{grid-template-columns:minmax(0,1fr)}.rules{max-height:none}}
+@media (max-width:760px){header,main{padding-inline:16px}.steps{grid-template-columns:minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.tbl .hide-m{display:none}.tbl th{top:0}.mov li{grid-template-columns:80px 1fr}.mov li span:nth-child(2){display:none}.cmp td:first-child{width:120px}}
+
+.kpi.ok b{color:var(--ok)} .kpi:disabled{opacity:1;cursor:default}
+.drop{border:1.5px dashed var(--line)}
+.drop.drag{border-color:var(--accent);background:var(--accent-soft)}
+.col{display:flex;flex-direction:column;gap:10px}
+.cmp input{width:100%;min-width:160px}
+.cmp input.changed{border-color:var(--accent);background:var(--accent-soft)}
+.was{color:var(--muted);text-decoration:line-through}
+.notice.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.ok-t{color:var(--ok)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.privacy{font-size:12px;color:var(--muted)}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Validador de Relatório<small>View × relatório anterior × DataJud</small></div>
+  <div class="spacer"></div>
+  <button id="btnRules" type="button">Ver as regras</button>
+  <label class="who">Seu nome <input id="user" autocomplete="name" placeholder="para o log"></label>
+</header>
+<main>
+  <div id="warn"></div>
+  <section class="steps" aria-label="Arquivos">
+    <div class="card drop" id="dropCur">
+      <span class="n">1 · VIEW ATUAL</span>
+      <div class="big" id="curName">Nenhuma view carregada</div>
+      <div class="muted small" id="curMeta">Arraste aqui o export da view (.xlsx, .csv ou .json).</div>
+      <div class="row"><button class="primary" id="btnCur" type="button">Escolher arquivo</button></div>
+      <input type="file" id="fileCur" accept=".xlsx,.xlsm,.xls,.csv,.txt,.json" hidden>
+    </div>
+    <div class="card drop" id="dropPrev">
+      <span class="n">2 · RELATÓRIO ANTERIOR</span>
+      <div class="big" id="prevName">Opcional</div>
+      <div class="muted small" id="prevMeta"></div>
+      <div class="row"><button id="btnPrev" type="button">Escolher arquivo</button><button id="btnPrevClear" type="button" hidden>Remover</button></div>
+      <input type="file" id="filePrev" accept=".xlsx,.xlsm,.xls,.csv,.txt,.json" hidden>
+    </div>
+    <div class="card">
+      <span class="n">3 · DATAJUD</span>
+      <div class="big" id="djName">Ainda não consultado</div>
+      <div class="muted small" id="djMeta"></div>
+      <div class="bar" id="djBar" hidden><i></i></div>
+      <div class="row"><button class="primary" id="btnRun" type="button">▶ Processar DataJud</button></div>
+    </div>
+  </section>
+  <section class="kpis" id="kpis" aria-label="Resumo"></section>
+  <section class="filters" aria-label="Filtros e exportação">
+    <select id="fCli" aria-label="Cliente"><option value="">Todos os clientes</option></select>
+    <select id="fSev" aria-label="Gravidade"><option value="">Todas as gravidades</option><option value="E">Erro</option><option value="A">Atenção</option><option value="I">Informativo</option></select>
+    <select id="fSt" aria-label="Status"><option value="open">Só abertos</option><option value="">Todos</option><option value="Justificado">Justificados</option></select>
+    <input type="search" id="fQ" placeholder="Buscar processo, autor, texto…" aria-label="Buscar">
+    <button id="btnClear" type="button">Limpar filtros</button>
+  </section>
+  <section class="filters actions" aria-label="Resultado">
+    <button class="primary" id="btnExport" type="button" disabled>Baixar view corrigida</button>
+    <button id="btnLog" type="button" disabled>Baixar log (correções e pendências)</button>
+    <button id="btnReset" type="button" hidden>Descartar correções</button>
+    <span class="spacer"></span>
+    <span class="privacy">Os arquivos são lidos no seu navegador e não são enviados a lugar nenhum. Só os números dos processos vão ao DataJud.</span>
+  </section>
+  <section class="layout">
+    <div class="panel"><div class="hd"><h3>Problemas por regra</h3></div><ul class="rules" id="ruleList"></ul></div>
+    <div class="panel"><div class="hd"><h3 id="listTitle">Inconsistências</h3><span class="spacer"></span><span class="muted small" id="listCount"></span></div><div id="listWrap"></div></div>
+  </section>
+</main>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Detalhe da linha"></aside>
+<dialog id="dlgRules"><div class="hd"><h2>Regras do validador</h2><span style="flex:1"></span><button type="button" id="closeRules">Fechar</button></div><div class="bd" id="rulesBody"></div></dialog>
+
+<script>
+window.VENGINE = (() => { const module = { exports: {} };
+// Validador geral de relatórios (view do escritório × relatório anterior × DataJud).
+// Tudo aqui é determinístico: cada regra diz o que está errado e o que fazer, em linguagem simples.
+
+/* ---------- normalização ---------- */
+const strip = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+const normH = (s) => strip(s).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+const empty = (v) => v === null || v === undefined || String(v).trim() === "" || /^(-|n\/a|n\/d|na|nd|null|none|ativo|0000-00-00)$/i.test(String(v).trim());
+const digits = (v) => String(v ?? "").replace(/\D/g, "");
+
+function toNum(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  const s = String(v).trim();
+  if (!s || s === "-") return null;
+  if (/^-?\d+(\.\d+)?(e-?\d+)?$/i.test(s)) return +s;
+  let t = s.replace(/[^\d,.\-]/g, "");
+  if (!t) return null;
+  if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  else if (t.includes(",")) t = t.replace(",", ".");
+  else if ((t.match(/\./g) || []).length > 1) t = t.replace(/\./g, "");
+  const n = +t;
+  return isFinite(n) ? n : null;
+}
+function toDate(v) {
+  if (empty(v)) return null;
+  if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  if (/^\d{4,5}(\.\d+)?$/.test(s)) { const n = +s; if (n < 1000 || n > 80000) return null; return new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10); }
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? m[0] : null;
+}
+const days = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
+const fmtCnj = (d) => (d && d.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d[13]}.${d.slice(14, 16)}.${d.slice(16)}` : d || "");
+const fmtD = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "vazio");
+const fmtR = (n) => (n === null || n === undefined ? "vazio" : "R$ " + Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const show = (v) => (empty(v) ? "vazio" : String(v).trim());
+
+/* ---------- colunas da view ---------- */
+// Cada campo aceita o nome exato da view e sinônimos. Nome com sufixo de período (ex.: "valor_provavel - Q3-2026") também serve.
+const FIELDS = [
+  ["cnj", "Número do processo", ["numero_processo", "numero_do_processo", "processo", "cnj", "n_processo", "lawsuit_number"]],
+  ["cod", "Código interno", ["cod_processo", "codigo_processo", "codigo", "id_processo"]],
+  ["cliente", "Cliente", ["cliente", "nome_cliente", "empresa_cliente", "grupo_cliente"]],
+  ["situacao", "Situação", ["situacao", "status_processo", "situacao_processo", "situacao_do_processo", "status_do_processo", "situacao_atual", "status"]],
+  ["natureza", "Natureza", ["natureza"]],
+  ["tipo", "Tipo de processo", ["tipo_processo", "tipo_de_processo", "tipo_acao", "tipo_de_acao", "classe"]],
+  ["fase", "Posição atual (fase)", ["posicao_atual", "fase", "fase_atual", "fase_processual", "instancia"]],
+  ["distrib", "Data de distribuição", ["data_distribuicao", "data_de_distribuicao", "data_ajuizamento"], "date"],
+  ["entrada", "Data de entrada", ["data_entrada", "data_de_entrada", "data_cadastro"], "date"],
+  ["encerr", "Data de encerramento", ["data_encerramento", "data_de_encerramento"], "date"],
+  ["motivo", "Motivo do encerramento", ["motivo_encerramento", "motivo_do_encerramento"]],
+  ["vara", "Vara (competência originária)", ["competencia_originaria", "vara", "orgao_julgador"]],
+  ["comarca", "Comarca/UF", ["comarca_uf", "comarca"]],
+  ["uf", "UF", ["uf", "estado"]],
+  ["objetos", "Objetos da ação", ["objetos_acao", "objetos_da_acao", "pedidos"]],
+  ["autor", "Autor", ["autor", "reclamante", "parte_contraria"]],
+  ["cpf", "CPF do autor", ["cpf", "cpf_autor", "cpf_cnpj", "cpf_reclamante"]],
+  ["reu", "Réu", ["reu", "reclamada", "parte_cliente"]],
+  ["outras", "Outras partes", ["outras_partes", "terceiros_envolvidos", "terceiros", "corresponsaveis"]],
+  ["adv", "Advogado do autor", ["advogado_reclamante", "advogado_autor", "advogado_contrario"]],
+  ["contrat", "Tipo de contratação", ["tipo_contratacao"]],
+  ["funcao", "Função", ["funcao", "cargo"]],
+  ["admissao", "Data de admissão", ["data_admissao"], "date"],
+  ["demissao", "Data de demissão", ["data_demissao"], "date"],
+  ["vOrig", "Valor do pedido original", ["valor_do_pedido_original", "valor_causa", "valor_da_causa", "valor_pedido_original"], "num"],
+  ["vAtual", "Valor do pedido atualizado", ["valor_do_pedido_atualizado", "valor_atualizado", "valor_pedido_atualizado"], "num"],
+  ["dtAtual", "Data de atualização dos valores", ["data_atualizacao", "data_de_atualizacao"], "date"],
+  ["prob", "Probabilidade de perda", ["probabilidade_de_perda", "probabilidade", "prognostico", "risco"]],
+  ["vProv", "Valor provável (provisão)", ["valor_provavel", "valor_atualizado_provavel", "provisao"], "num"],
+  ["vPoss", "Valor possível", ["valor_possivel", "valor_atualizado_possivel"], "num"],
+  ["vRem", "Valor remoto", ["valor_remoto", "valor_atualizado_remoto"], "num"],
+  ["garTipo", "Garantias oferecidas", ["garantias_oferecidas", "tipo_garantia"]],
+  ["garData", "Data das garantias", ["data_garantias", "data_garantia"], "date"],
+  ["garValor", "Valor das garantias", ["valor_historico_total_garantias_oferecidas", "valor_historico_garantias_oferecidas", "valor_garantia", "valor_garantias"], "num"],
+  ["area", "Área", ["area"]],
+];
+const FIELD = Object.fromEntries(FIELDS.map(([k, label, , type]) => [k, { label, type }]));
+const LABEL = (k) => (FIELD[k] ? FIELD[k].label : k);
+
+function mapView(rows) {
+  // acha a linha de cabeçalho: a que mais casa com os nomes conhecidos, entre as 15 primeiras
+  let best = { i: 0, score: -1 };
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const hs = (rows[i] || []).map(normH);
+    const score = FIELDS.filter(([, , names]) => hs.some((h) => names.some((n) => h === n || h.startsWith(n + "_")))).length;
+    if (score > best.score) best = { i, score };
+  }
+  const hdr = (rows[best.i] || []).map(normH);
+  const map = {};
+  for (const [key, , names] of FIELDS) {
+    let col = -1;
+    for (const n of names) { col = hdr.indexOf(n); if (col >= 0) break; }
+    if (col < 0) {
+      // nome com sufixo de período: fica com a última ocorrência (a do período mais recente)
+      for (const n of names) { for (let c = 0; c < hdr.length; c++) if (hdr[c].startsWith(n + "_") && /^_(q[1-4]|\d)/.test(hdr[c].slice(n.length))) col = c; if (col >= 0) break; }
+    }
+    if (col >= 0) map[key] = col;
+  }
+  if (map.cnj === undefined) {
+    // sem nome conhecido: coluna em que a maioria dos valores tem 20 dígitos
+    const sample = rows.slice(best.i + 1, best.i + 201);
+    const width = Math.max(...sample.map((r) => (r || []).length), 0);
+    for (let c = 0; c < width; c++) {
+      const vals = sample.map((r) => (r || [])[c]).filter((v) => !empty(v));
+      if (vals.length && vals.filter((v) => digits(v).length === 20).length / vals.length >= 0.6) { map.cnj = c; break; }
+    }
+  }
+  const records = [];
+  for (let r = best.i + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    if (!row.some((v) => !empty(v))) continue;
+    const rec = { _row: r + 1 };
+    for (const [key, , , type] of FIELDS) {
+      const col = map[key];
+      const raw = col === undefined ? null : row[col];
+      rec[key] = type === "num" ? toNum(raw) : type === "date" ? toDate(raw) : empty(raw) ? "" : String(raw).trim();
+    }
+    rec.cnjRaw = rec.cnj;
+    rec.cnj = digits(rec.cnj);
+    if (!rec.cliente) rec.cliente = clienteDe(rec.reu);
+    records.push(rec);
+  }
+  const missing = FIELDS.filter(([k]) => map[k] === undefined).map(([k, l]) => ({ key: k, label: l }));
+  return { headerRow: best.i + 1, map, columns: Object.fromEntries(Object.entries(map).map(([k, c]) => [k, rows[best.i][c]])), missing, records };
+}
+function clienteDe(reu) {
+  const first = String(reu || "").split(/[;\n]/)[0].trim();
+  if (!first) return "(sem réu)";
+  const skip = /^(empresa|companhia|cia|grupo|industria|ind|comercio|com|the|de|do|da|dos|das)$/i;
+  const w = first.replace(/[.,()]/g, " ").trim().split(/\s+/).filter((x) => x.length > 1 && !skip.test(strip(x)));
+  return (w[0] || first).toUpperCase();
+}
+
+/* ---------- tabelas de apoio ---------- */
+const TRT_UF = { 1: ["RJ"], 2: ["SP"], 3: ["MG"], 4: ["RS"], 5: ["BA"], 6: ["PE"], 7: ["CE"], 8: ["PA", "AP"], 9: ["PR"], 10: ["DF", "TO"], 11: ["AM", "RR"], 12: ["SC"], 13: ["PB"], 14: ["RO", "AC"], 15: ["SP"], 16: ["MA"], 17: ["ES"], 18: ["GO"], 19: ["AL"], 20: ["SE"], 21: ["RN"], 22: ["PI"], 23: ["MT"], 24: ["MS"] };
+const TJ_UF = ["", "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SE", "SP", "TO"];
+function ufsDoCnj(d) {
+  if (d.length !== 20) return null;
+  const j = d[13], tr = +d.slice(14, 16);
+  if (j === "5" && TRT_UF[tr]) return { ufs: TRT_UF[tr], nome: `TRT${tr}` };
+  if (j === "8" && TJ_UF[tr]) return { ufs: [TJ_UF[tr]], nome: `TJ${TJ_UF[tr]}` };
+  return null;
+}
+function cnjValid(d) {
+  if (!d) return "vazio";
+  if (d.length !== 20) return `tem ${d.length} dígitos (o CNJ tem 20)`;
+  const n = BigInt(d.slice(0, 7) + d.slice(9, 13) + d[13] + d.slice(14, 16) + d.slice(16) + "00");
+  const dv = String(98n - (n % 97n)).padStart(2, "0");
+  return dv === d.slice(7, 9) ? null : `dígito verificador errado (está ${d.slice(7, 9)}, o correto seria ${dv})`;
+}
+function cpfValid(v) {
+  const d = digits(v);
+  if (d.length === 14) return null; // CNPJ: não validamos aqui
+  if (d.length !== 11) return `tem ${d.length} dígitos (o CPF tem 11)`;
+  if (/^(\d)\1{10}$/.test(d)) return "número repetido";
+  const dv = (len) => { let s = 0; for (let i = 0; i < len; i++) s += +d[i] * (len + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dv(9) === +d[9] && dv(10) === +d[10] ? null : "dígitos verificadores não conferem";
+}
+// ordem das fases (para detectar retrocesso e comparar com o DataJud)
+function faseInfo(f) {
+  const s = strip(f);
+  if (!s) return { rank: null, s };
+  if (/arquiv|encerr|baixad/.test(s)) return { rank: 9, s, fim: true };
+  if (/acordo/.test(s)) return { rank: 8, s };
+  if (/execu/.test(s) && !/provis/.test(s)) return { rank: 7, s, exec: true };
+  if (/3|tst|superior|extraordin/.test(s)) return { rank: 3, s };
+  if (/2|tribunal|recurs|trt/.test(s)) return { rank: 2, s };
+  if (/1|primeira|vara|conhecimento|instrucao|inicial/.test(s)) return { rank: 1, s };
+  if (/administ/.test(s)) return { rank: 0, s };
+  return { rank: null, s };
+}
+// Situação vazia: vale a data de encerramento (tem data = encerrado; sem data = ativo).
+// processo administrativo (PROCON, auto de infração, inquérito): numeração não segue o CNJ
+const ADMIN = (r) => /administ/.test(strip(r.natureza)) || /procon|auto de infra|inquerito|noticia de fato|administrativ/.test(strip(r.tipo));
+const ENCERRADO = (r) => (empty(r.situacao) ? !!r.encerr : /encerr|arquiv|baix|finaliz|inativ|extint|conclu/.test(strip(r.situacao)));
+const ATIVO = (r) => !ENCERRADO(r);
+const TRAB = (r) => !r.area || /trabalh/.test(strip(r.area)) || (r.cnj && r.cnj[13] === "5");
+
+/* ---------- DataJud: leitura do resumo ---------- */
+function djView(insts) {
+  if (!insts || !insts.length) return null;
+  const all = insts.flatMap((i) => (i.rel || []).map((m) => ({ ...m, grau: i.grau, trib: i.trib })));
+  all.sort((a, b) => (a.d < b.d ? -1 : 1));
+  const last = insts.map((i) => i.last).filter(Boolean).sort((a, b) => (a.d < b.d ? -1 : 1)).pop() || null;
+  const g1 = insts.find((i) => i.grau === "G1") || null;
+  const hasG2 = insts.some((i) => i.grau === "G2" && i.nMov > 0);
+  const hasSup = insts.some((i) => (i.grau === "SUP" || /TST/i.test(i.trib || "")) && i.nMov > 0);
+  const lastOf = (c) => { const x = all.filter((m) => m.c === c).pop(); return x ? x.d : null; };
+  const ajuiz = (insts.map((i) => i.ajuiz).filter(Boolean).sort()[0] || "");
+  return {
+    last, rel: all, g1, hasG2, hasSup,
+    baixa: lastOf("baixa"), transito: lastOf("transito"), acordo: lastOf("acordo"), pagamento: lastOf("pagamento"),
+    execucao: lastOf("execucao") || lastOf("calculos"), sentenca: lastOf("sentenca"), acordao: lastOf("acordao"),
+    ajuiz: ajuiz.length === 8 ? `${ajuiz.slice(0, 4)}-${ajuiz.slice(4, 6)}-${ajuiz.slice(6, 8)}` : null,
+    orgao: g1 ? g1.orgao : (insts[0] && insts[0].orgao) || "",
+  };
+}
+const REL_PT = { transito: "trânsito em julgado", baixa: "baixa/arquivamento", acordo: "acordo", pagamento: "pagamento/alvará", calculos: "cálculos", execucao: "execução", acordao: "acórdão", sentenca: "sentença", recurso: "recurso" };
+
+/* ---------- catálogo de regras ---------- */
+// sev: E = erro (quase certo), A = atenção (conferir), I = informativo
+// cat: cad = cadastro, coe = coerência interna, var = variação desde o relatório anterior, dj = DataJud
+const RULES = [
+  // cadastro
+  ["V01", "cad", "E", "Número do processo inválido", "O número não fecha com a regra do CNJ (20 dígitos e dígito verificador).", "Corrigir o número no sistema. Se estiver certo no processo, é erro de digitação no cadastro."],
+  ["V02", "cad", "E", "Processo cadastrado em duplicidade", "O mesmo número aparece em mais de uma linha da view.", "Manter um cadastro só e inativar o outro (conferir qual tem os valores certos)."],
+  ["V03", "cad", "E", "Campo obrigatório vazio", "Falta informação básica no cadastro (autor, réu, fase, situação, probabilidade, vara, comarca, distribuição ou valor).", "Preencher o campo no sistema."],
+  ["V04", "cad", "E", "CPF inválido", "O CPF não tem 11 dígitos ou os dígitos verificadores não batem (ex.: CPF colado duas vezes).", "Corrigir o CPF do autor."],
+  ["V05", "cad", "E", "Data impossível", "Datas em ordem impossível: distribuição no futuro, encerramento antes da distribuição, demissão antes da admissão, admissão depois do ajuizamento.", "Corrigir a data errada."],
+  ["V06", "cad", "A", "Ano do número × data de distribuição", "O ano que está no número do processo é diferente do ano da data de distribuição.", "Conferir a data de distribuição (ou o número, se for processo migrado)."],
+  ["V07", "cad", "E", "Estado da comarca × tribunal do número", "A UF da comarca não pertence ao tribunal indicado no número do processo.", "Conferir a comarca ou o número."],
+  ["V08", "cad", "A", "Terceirizado sem empresa prestadora", "Tipo de contratação é Terceiro, mas não há outras partes (a prestadora) no cadastro.", "Cadastrar a prestadora em Outras partes."],
+  ["V09", "cad", "A", "Ação ajuizada mais de 2 anos após a demissão", "Processo ativo distribuído mais de 2 anos depois da data de demissão. Ou a data está errada, ou há tese de prescrição bienal.", "Conferir as datas; se estiverem certas, avaliar a prescrição."],
+  ["V10", "cad", "A", "Valores sem atualização recente", "A data de atualização dos valores tem mais de 90 dias em processo ativo.", "Rodar a atualização monetária do processo."],
+  // coerência interna
+  ["V11", "coe", "E", "Encerrado sem data ou motivo de encerramento", "Situação encerrada, mas falta data ou motivo do encerramento.", "Preencher data e motivo do encerramento."],
+  ["V12", "coe", "E", "Ativo com data de encerramento", "Situação ativa, mas há data de encerramento preenchida.", "Ou encerrar o processo, ou apagar a data de encerramento."],
+  ["V13", "coe", "E", "Ativo com fase Arquivado", "A situação diz que o processo está ativo, mas a fase é Arquivado.", "Encerrar o processo (data e motivo) ou corrigir a fase."],
+  ["V14", "coe", "E", "Probabilidade × valores não batem", "Provável sem valor provável, Remota com valor provável, ou Possível sem valor possível.", "Corrigir a probabilidade ou redistribuir os valores."],
+  ["V15", "coe", "A", "Soma dos valores de risco ≠ valor atualizado", "Provável + possível + remoto não fecha com o valor do pedido atualizado (diferença maior que 1%).", "Conferir a distribuição dos valores de risco."],
+  ["V16", "coe", "E", "Encerrado com provisão", "Processo encerrado ainda com valor provável maior que zero.", "Zerar a provisão (ou reabrir o processo, se não encerrou)."],
+  ["V17", "coe", "A", "Valor atualizado menor que o original", "O valor atualizado está abaixo do valor original do pedido (ou zerado).", "Conferir a atualização monetária ou a redução por decisão."],
+  ["V18", "coe", "E", "Valor negativo", "Algum valor está negativo.", "Corrigir o valor."],
+  ["V19", "coe", "A", "Garantia sem data ou em processo encerrado", "Há valor de garantia sem data, ou garantia em processo encerrado (depósito a levantar?).", "Completar a data ou verificar o levantamento do depósito."],
+  // variação desde o relatório anterior
+  ["V20", "var", "A", "Provisão mudou sem mudar a fase", "O valor provável variou mais que o limite, mas a fase e a probabilidade continuam iguais.", "Conferir o motivo da variação (atualização, cálculo, decisão) e registrar."],
+  ["V21", "var", "A", "Fase mudou e a provisão não", "A fase mudou desde o relatório anterior, mas a provisão e a probabilidade ficaram iguais.", "Reavaliar o risco com a nova fase."],
+  ["V22", "var", "A", "Probabilidade mudou sem mudar a fase", "A probabilidade de perda mudou, mas a fase é a mesma.", "Confirmar a decisão que justificou a mudança."],
+  ["V23", "var", "E", "Fase voltou para trás", "A fase atual é anterior à do relatório passado (ex.: 2ª Instância para 1ª Instância).", "Corrigir a fase (ou registrar o retorno dos autos, se for o caso)."],
+  ["V24", "var", "A", "Encerrado voltou a ficar ativo", "Estava encerrado no relatório anterior e agora está ativo.", "Confirmar a reabertura."],
+  ["V25", "var", "E", "Processo sumiu da view", "Estava no relatório anterior e não aparece mais, sem ter sido encerrado.", "Verificar se foi excluído ou transferido por engano."],
+  ["V26", "var", "A", "Processo novo com entrada antiga", "Aparece pela primeira vez, mas a data de entrada é anterior ao relatório passado (cadastro atrasado).", "Confirmar por que não constava no relatório anterior."],
+  ["V27", "var", "E", "Dado fixo foi alterado", "Mudou um dado que não deveria mudar: autor, CPF, distribuição, comarca ou valor original.", "Confirmar se a alteração é correção legítima."],
+  ["V28", "var", "A", "Valor atualizado caiu", "O valor do pedido atualizado diminuiu em processo ativo.", "Conferir se houve decisão reduzindo o valor."],
+  ["V29", "var", "A", "Valores não foram atualizados", "Processo ativo com a mesma data de atualização do relatório anterior.", "Rodar a atualização monetária."],
+  // DataJud
+  ["V30", "dj", "A", "Não encontrado no DataJud", "O CNJ não retorna nada na API pública (número errado, segredo de justiça ou tribunal fora da base).", "Conferir o número no site do tribunal."],
+  ["V31", "dj", "E", "DataJud indica arquivamento, sistema ativo", "O DataJud tem baixa definitiva/arquivamento, mas o processo está ativo no sistema.", "Confirmar e encerrar o processo (data e motivo)."],
+  ["V32", "dj", "A", "DataJud tem acordo, fase não reflete", "Há acordo/homologação no DataJud e a fase no sistema não é Acordo, Execução ou Arquivado.", "Atualizar fase e provisão para o acordo."],
+  ["V33", "dj", "A", "DataJud em execução, sistema em conhecimento", "O DataJud tem execução/cálculos e a fase no sistema ainda é de conhecimento.", "Atualizar a fase para Execução e revisar a provisão."],
+  ["V34", "dj", "A", "Processo já subiu de instância", "O DataJud mostra o processo no TRT/TST, mas o sistema está numa instância anterior.", "Atualizar a fase."],
+  ["V35", "dj", "A", "Encerrado com movimentação depois do encerramento", "O processo está encerrado, mas o DataJud tem andamento relevante mais de 30 dias após a data de encerramento.", "Confirmar se o processo foi reaberto."],
+  ["V36", "dj", "I", "Processo parado há mais de 180 dias", "Ativo e sem nenhuma movimentação no DataJud há mais de 180 dias.", "Conferir se está suspenso/sobrestado ou se há providência pendente."],
+  ["V37", "dj", "A", "Data de distribuição × DataJud", "A data de distribuição do sistema difere mais de 5 dias da data de ajuizamento no DataJud.", "Corrigir a data de distribuição."],
+  ["V38", "dj", "A", "Vara ou cidade × DataJud", "O número da vara ou a cidade do cadastro não bate com o órgão julgador no DataJud.", "Corrigir vara/comarca no cadastro."],
+  ["V39", "dj", "A", "Andamento novo sem reflexo no cadastro", "Houve sentença, acórdão, trânsito, acordo ou pagamento depois do relatório anterior, e nada mudou em fase, probabilidade ou provisão.", "Atualizar o cadastro com o andamento e reavaliar o risco."],
+];
+const RULE = Object.fromEntries(RULES.map(([id, cat, sev, name, se, acao]) => [id, { id, cat, sev, name, se, acao }]));
+const CATS = { cad: "Cadastro", coe: "Coerência interna", var: "Mudou desde o relatório anterior", dj: "DataJud" };
+const SEVS = { E: "Erro", A: "Atenção", I: "Informativo" };
+
+const DEFAULTS = { provVar: 0.2, provVarMin: 5000, staleDays: 90, idleDays: 180, sumTol: 0.01 };
+
+/* ---------- motor ---------- */
+function run({ cur, prev, dj, params, prevDate, today }) {
+  const P = Object.assign({}, DEFAULTS, params || {});
+  const hoje = today || new Date().toISOString().slice(0, 10);
+  const out = [];
+  const add = (id, r, o) => out.push(Object.assign({ key: `${id}|${r ? r.cnj || "L" + r._row : ""}|${o.campo || ""}`, rule: id, cat: RULE[id].cat, sev: RULE[id].sev, cnj: r ? r.cnj : "", cnjFmt: r ? fmtCnj(r.cnj) || r.cnjRaw : "", cliente: r ? r.cliente : "", autor: r ? r.autor : "", linha: r ? r._row : null, fase: r ? r.fase : "", situacao: r ? r.situacao : "" }, o));
+
+  // campos que existem na view (ao menos uma linha preenchida); coluna ausente não gera "campo vazio"
+  const present = new Set(FIELDS.map(([k]) => k).filter((k) => cur.some((r) => (FIELD[k].type === "num" ? r[k] !== null : !empty(r[k])))));
+  const byCnj = {};
+  cur.forEach((r) => { if (r.cnj) (byCnj[r.cnj] = byCnj[r.cnj] || []).push(r); });
+
+  for (const r of cur) {
+    const ativo = ATIVO(r);
+    // V01
+    const cv = ADMIN(r) ? null : cnjValid(r.cnj);
+    if (cv) add("V01", r, { campo: "cnj", view: show(r.cnjRaw), detalhe: `Número ${cv}.` });
+    // V02
+    if (r.cnj && byCnj[r.cnj].length > 1 && byCnj[r.cnj][0] === r) add("V02", r, { campo: "cnj", view: byCnj[r.cnj].map((x) => `linha ${x._row}${x.cod ? " (cód. " + x.cod + ")" : ""}`).join(", "), detalhe: `${byCnj[r.cnj].length} cadastros com o mesmo número.` });
+    // V03
+    const obrig = ["autor", "reu", "fase", "situacao", "prob", "vara", "comarca", "distrib", "vOrig"];
+    const falt = obrig.filter((k) => present.has(k) && (FIELD[k].type === "num" ? r[k] === null : empty(r[k])));
+    if (falt.length) add("V03", r, { campo: falt.join(","), view: falt.map(LABEL).join(", "), detalhe: `Falta: ${falt.map(LABEL).join(", ")}.` });
+    // V04
+    if (!empty(r.cpf)) { const e = cpfValid(r.cpf); if (e) add("V04", r, { campo: "cpf", view: show(r.cpf), detalhe: `CPF ${e}.` }); }
+    // V05
+    const imp = [];
+    if (r.distrib && r.distrib > hoje) imp.push(`distribuição no futuro (${fmtD(r.distrib)})`);
+    if (r.encerr && r.distrib && r.encerr < r.distrib) imp.push(`encerramento (${fmtD(r.encerr)}) antes da distribuição (${fmtD(r.distrib)})`);
+    if (r.encerr && r.encerr > hoje) imp.push(`encerramento no futuro (${fmtD(r.encerr)})`);
+    if (r.admissao && r.demissao && r.demissao < r.admissao) imp.push(`demissão (${fmtD(r.demissao)}) antes da admissão (${fmtD(r.admissao)})`);
+    if (r.admissao && r.distrib && r.admissao > r.distrib) imp.push(`admissão (${fmtD(r.admissao)}) depois do ajuizamento (${fmtD(r.distrib)})`);
+    if (imp.length) add("V05", r, { campo: "datas", view: imp.join("; "), detalhe: imp.join("; ") + "." });
+    // V06
+    if (r.cnj.length === 20 && r.distrib && r.cnj.slice(9, 13) !== r.distrib.slice(0, 4)) add("V06", r, { campo: "distrib", view: fmtD(r.distrib), detalhe: `Número é de ${r.cnj.slice(9, 13)}, distribuição em ${r.distrib.slice(0, 4)}.` });
+    // V07
+    const uf = (r.uf && /^[A-Za-z]{2}$/.test(String(r.uf).trim()) ? String(r.uf).trim().toUpperCase() : null) || (/\b([A-Z]{2})\s*$/.exec(String(r.comarca || "").toUpperCase().replace(/[^A-Z/ -]/g, " ").trim()) || [])[1];
+    const tri = ufsDoCnj(r.cnj);
+    if (uf && tri && !tri.ufs.includes(uf)) add("V07", r, { campo: "comarca", view: show(r.comarca), detalhe: `Comarca em ${uf}, mas o número é do ${tri.nome} (${tri.ufs.join("/")}).` });
+    if (TRAB(r)) {
+      // V08
+      if (/terceir/.test(strip(r.contrat)) && empty(r.outras)) add("V08", r, { campo: "outras", view: "vazio", detalhe: "Terceiro sem prestadora cadastrada." });
+      // V09
+      if (ativo && r.demissao && r.distrib && days(r.demissao, r.distrib) > 731) add("V09", r, { campo: "distrib", view: `demissão ${fmtD(r.demissao)}, distribuição ${fmtD(r.distrib)}`, detalhe: `${Math.floor(days(r.demissao, r.distrib) / 30)} meses entre a demissão e o ajuizamento.` });
+    }
+    // V10
+    if (ativo && r.dtAtual && days(r.dtAtual, hoje) > P.staleDays) add("V10", r, { campo: "dtAtual", view: fmtD(r.dtAtual), detalhe: `Última atualização há ${Math.floor(days(r.dtAtual, hoje))} dias.` });
+
+    // coerência
+    if (!ativo && (!r.encerr || empty(r.motivo))) add("V11", r, { campo: !r.encerr ? "encerr" : "motivo", view: `data ${fmtD(r.encerr)}, motivo ${show(r.motivo)}`, detalhe: `Falta ${[!r.encerr && "data", empty(r.motivo) && "motivo"].filter(Boolean).join(" e ")} do encerramento.` });
+    if (ativo && r.encerr && !empty(r.situacao)) add("V12", r, { campo: "encerr", view: fmtD(r.encerr), detalhe: `Situação "${show(r.situacao)}" com encerramento em ${fmtD(r.encerr)}.` });
+    const fi = faseInfo(r.fase);
+    if (!empty(r.situacao) && fi.rank !== null && (ativo && fi.fim)) add("V13", r, { campo: "fase", view: `${show(r.situacao)} / ${show(r.fase)}`, detalhe: `Situação "${show(r.situacao)}" com fase "${show(r.fase)}".` });
+    const pr = strip(r.prob), vp = r.vProv || 0, vpo = r.vPoss || 0;
+    if (ativo) {
+      let m = null;
+      if (/prova/.test(pr) && vp <= 0) m = "Provável com valor provável zerado";
+      else if (/remot/.test(pr) && vp > 0) m = `Remota com valor provável de ${fmtR(vp)}`;
+      else if (/possi/.test(pr) && vpo <= 0 && vp <= 0 && (r.vAtual || 0) > 0) m = "Possível com valor possível zerado";
+      if (m) add("V14", r, { campo: "prob", view: `${show(r.prob)}: provável ${fmtR(r.vProv)}, possível ${fmtR(r.vPoss)}, remoto ${fmtR(r.vRem)}`, detalhe: m + "." });
+      if (r.vAtual && [r.vProv, r.vPoss, r.vRem].some((x) => x !== null)) {
+        const soma = (r.vProv || 0) + (r.vPoss || 0) + (r.vRem || 0);
+        if (Math.abs(soma - r.vAtual) > Math.max(1, r.vAtual * P.sumTol)) add("V15", r, { campo: "vAtual", view: `soma ${fmtR(soma)} × atualizado ${fmtR(r.vAtual)}`, detalhe: `Diferença de ${fmtR(soma - r.vAtual)}.` });
+      }
+      if (r.vOrig > 0 && r.vAtual !== null && r.vAtual < r.vOrig * 0.999) add("V17", r, { campo: "vAtual", view: `original ${fmtR(r.vOrig)}, atualizado ${fmtR(r.vAtual)}`, detalhe: r.vAtual === 0 ? "Valor atualizado zerado." : "Atualizado abaixo do original." });
+    } else if (vp > 0) add("V16", r, { campo: "vProv", view: fmtR(vp), detalhe: `Encerrado com provisão de ${fmtR(vp)}.` });
+    const neg = ["vOrig", "vAtual", "vProv", "vPoss", "vRem", "garValor"].filter((k) => r[k] !== null && r[k] < 0);
+    if (neg.length) add("V18", r, { campo: neg.join(","), view: neg.map((k) => `${LABEL(k)} ${fmtR(r[k])}`).join("; "), detalhe: "Valor negativo." });
+    if (r.garValor > 0 && (!r.garData || !ativo)) add("V19", r, { campo: "garValor", view: `${fmtR(r.garValor)}${r.garData ? " em " + fmtD(r.garData) : " sem data"}`, detalhe: !ativo ? "Garantia em processo encerrado." : "Garantia sem data." });
+  }
+
+  // comparação com o relatório anterior
+  if (prev && prev.length) {
+    const pBy = {};
+    prev.forEach((r) => { if (r.cnj && !pBy[r.cnj]) pBy[r.cnj] = r; });
+    const seen = new Set();
+    for (const r of cur) {
+      if (!r.cnj || seen.has(r.cnj)) continue;
+      seen.add(r.cnj);
+      const p = pBy[r.cnj];
+      if (!p) {
+        if (prevDate && r.entrada && r.entrada < prevDate) add("V26", r, { campo: "entrada", view: fmtD(r.entrada), anterior: "não constava", detalhe: `Entrada em ${fmtD(r.entrada)}, antes do relatório anterior (${fmtD(prevDate)}).` });
+        continue;
+      }
+      const ativo = ATIVO(r), pAtivo = ATIVO(p);
+      const fa = faseInfo(r.fase), fp = faseInfo(p.fase);
+      const faseMudou = strip(r.fase) !== strip(p.fase);
+      const probMudou = strip(r.prob) !== strip(p.prob);
+      const dv = (r.vProv || 0) - (p.vProv || 0);
+      const provMudou = Math.abs(dv) > P.provVarMin && Math.abs(dv) > Math.max(p.vProv || 0, 1) * P.provVar;
+      const common = { anterior: "", detalhe: "" };
+      if (ativo && provMudou && !faseMudou && !probMudou) add("V20", r, { ...common, campo: "vProv", view: fmtR(r.vProv), anterior: fmtR(p.vProv), detalhe: `Provisão ${dv > 0 ? "subiu" : "caiu"} ${fmtR(Math.abs(dv))} (${p.vProv ? Math.round((dv / p.vProv) * 100) + "%" : "de zero"}) com fase "${show(r.fase)}" e probabilidade "${show(r.prob)}" iguais.` });
+      if (ativo && faseMudou && fa.rank !== fp.rank && !probMudou && Math.abs(dv) < 1) add("V21", r, { campo: "fase", view: show(r.fase), anterior: show(p.fase), detalhe: `Fase mudou de "${show(p.fase)}" para "${show(r.fase)}", provisão ficou em ${fmtR(r.vProv)} e probabilidade em "${show(r.prob)}".` });
+      if (ativo && probMudou && !faseMudou) add("V22", r, { campo: "prob", view: show(r.prob), anterior: show(p.prob), detalhe: `Probabilidade de "${show(p.prob)}" para "${show(r.prob)}" com fase "${show(r.fase)}" igual.` });
+      if (fa.rank !== null && fp.rank !== null && fa.rank < fp.rank && !(fp.rank === 8 && fa.rank === 7) && !(fa.rank >= 1 && fa.rank <= 3 && fp.rank === 9 && !ativo)) add("V23", r, { campo: "fase", view: show(r.fase), anterior: show(p.fase), detalhe: `Fase foi de "${show(p.fase)}" para "${show(r.fase)}".` });
+      if (ativo && !pAtivo) add("V24", r, { campo: "situacao", view: show(r.situacao), anterior: show(p.situacao), detalhe: `Era "${show(p.situacao)}" e agora é "${show(r.situacao)}".` });
+      const fixos = [["autor", (x) => strip(x.autor)], ["cpf", (x) => digits(x.cpf)], ["distrib", (x) => x.distrib || ""], ["comarca", (x) => strip(x.comarca)], ["vOrig", (x) => (x.vOrig === null ? "" : Math.round(x.vOrig * 100))]];
+      const mud = fixos.filter(([, f]) => f(p) !== "" && f(r) !== f(p)).map(([k]) => k);
+      if (mud.length) add("V27", r, { campo: mud.join(","), view: mud.map((k) => `${LABEL(k)}: ${k === "vOrig" ? fmtR(r[k]) : k === "distrib" ? fmtD(r[k]) : show(r[k])}`).join("; "), anterior: mud.map((k) => `${k === "vOrig" ? fmtR(p[k]) : k === "distrib" ? fmtD(p[k]) : show(p[k])}`).join("; "), detalhe: `Alterado: ${mud.map(LABEL).join(", ")}.` });
+      if (ativo && p.vAtual && r.vAtual !== null && r.vAtual < p.vAtual * 0.99) add("V28", r, { campo: "vAtual", view: fmtR(r.vAtual), anterior: fmtR(p.vAtual), detalhe: `Caiu ${fmtR(p.vAtual - r.vAtual)}.` });
+      if (ativo && r.dtAtual && p.dtAtual && r.dtAtual === p.dtAtual) add("V29", r, { campo: "dtAtual", view: fmtD(r.dtAtual), anterior: fmtD(p.dtAtual), detalhe: "Mesma data de atualização do relatório anterior." });
+    }
+    const curSet = new Set(cur.map((r) => r.cnj));
+    for (const p of prev) if (p.cnj && !curSet.has(p.cnj) && ATIVO(p) && pBy[p.cnj] === p) add("V25", p, { campo: "cnj", view: "não aparece", anterior: `${show(p.situacao)} / ${show(p.fase)}`, detalhe: "Estava ativo no relatório anterior e não consta na view atual." });
+  }
+
+  // DataJud
+  if (dj && dj.results) {
+    const pBy = {};
+    (prev || []).forEach((r) => { if (r.cnj && !pBy[r.cnj]) pBy[r.cnj] = r; });
+    const seen = new Set();
+    for (const r of cur) {
+      if (!r.cnj || r.cnj.length !== 20 || seen.has(r.cnj)) continue;
+      seen.add(r.cnj);
+      if (!dj.queried || !dj.queried.includes(r.cnj)) continue;
+      const v = djView(dj.results[r.cnj]);
+      const ativo = ATIVO(r), fi = faseInfo(r.fase);
+      if (!v) { if ((dj.notFound || []).includes(r.cnj)) add("V30", r, { campo: "cnj", view: fmtCnj(r.cnj), datajud: "não encontrado", detalhe: "Nenhum registro na API pública do DataJud." }); continue; }
+      const lastTxt = v.last ? `${fmtD(v.last.d)}: ${v.last.n}` : "";
+      const base = { datajud: lastTxt, djRel: v.rel.slice(-6).map((m) => `${fmtD(m.d)} ${m.n} (${m.grau})`) };
+      const lastRel = v.rel[v.rel.length - 1];
+      const endDate = v.baixa && (!lastRel || lastRel.c === "baixa" || lastRel.d <= v.baixa) ? v.baixa : null;
+      if (ativo && endDate && !fi.fim) add("V31", r, { ...base, campo: "situacao", view: `${show(r.situacao)} / ${show(r.fase)}`, datajud: `baixa/arquivamento em ${fmtD(endDate)}`, detalhe: `DataJud registra baixa/arquivamento em ${fmtD(endDate)}.` });
+      else if (ativo && v.acordo && !/acordo|execu|arquiv/.test(fi.s) && (!r.distrib || v.acordo >= r.distrib)) add("V32", r, { ...base, campo: "fase", view: show(r.fase), datajud: `acordo em ${fmtD(v.acordo)}`, detalhe: `Acordo no DataJud em ${fmtD(v.acordo)}.` });
+      else if (ativo && v.execucao && fi.rank !== null && fi.rank >= 1 && fi.rank <= 3 && !/provis/.test(fi.s)) add("V33", r, { ...base, campo: "fase", view: show(r.fase), datajud: `execução/cálculos em ${fmtD(v.execucao)}`, detalhe: `Execução/cálculos no DataJud em ${fmtD(v.execucao)}.` });
+      else if (ativo && fi.rank !== null && fi.rank >= 1 && fi.rank <= 3) {
+        const djRank = v.hasSup ? 3 : v.hasG2 ? 2 : 1;
+        if (djRank > fi.rank) add("V34", r, { ...base, campo: "fase", view: show(r.fase), datajud: djRank === 3 ? "já tem registro no TST" : "já tem registro no TRT/2º grau", detalhe: `Sistema em "${show(r.fase)}", DataJud já mostra ${djRank === 3 ? "o TST" : "o 2º grau"}.` });
+      }
+      if (!ativo && r.encerr) {
+        const after = v.rel.filter((m) => days(r.encerr, m.d) > 30 && !["baixa", "pagamento", "transito"].includes(m.c));
+        if (after.length) add("V35", r, { ...base, campo: "encerr", view: fmtD(r.encerr), datajud: after.slice(-2).map((m) => `${fmtD(m.d)} ${m.n}`).join("; "), detalhe: `${after.length} andamento(s) relevante(s) depois do encerramento.` });
+      }
+      if (ativo && v.last && days(v.last.d, hoje) > P.idleDays) add("V36", r, { ...base, campo: "", view: show(r.fase), detalhe: `Último movimento em ${fmtD(v.last.d)} (${Math.floor(days(v.last.d, hoje))} dias).` });
+      if (r.distrib && v.ajuiz && Math.abs(days(r.distrib, v.ajuiz)) > 5) add("V37", r, { ...base, campo: "distrib", view: fmtD(r.distrib), datajud: fmtD(v.ajuiz), detalhe: `Sistema ${fmtD(r.distrib)}, DataJud ${fmtD(v.ajuiz)}.` });
+      if (v.orgao && (r.vara || r.comarca)) {
+        const nV = (/(\d+)/.exec(r.vara || "") || [])[1], nO = (/(\d+)\s*[ªaº°o]?\s*vara/i.exec(v.orgao) || [])[1];
+        const cidade = strip(String(r.comarca || "").split("/")[0]);
+        const orgS = strip(v.orgao);
+        const probs = [];
+        if (nV && nO && +nV !== +nO) probs.push(`vara ${+nV} no cadastro, ${+nO} no DataJud`);
+        if (cidade && cidade.length > 3 && /vara/.test(orgS) && !orgS.includes(cidade)) probs.push(`cidade "${show(String(r.comarca).split("/")[0])}" não aparece no órgão`);
+        if (probs.length) add("V38", r, { ...base, campo: "vara", view: `${show(r.vara)} / ${show(r.comarca)}`, datajud: v.orgao, detalhe: probs.join("; ") + "." });
+      }
+      const p = pBy[r.cnj];
+      if (p && prevDate && ativo) {
+        const novos = v.rel.filter((m) => m.d > prevDate && ["sentenca", "acordao", "transito", "acordo", "pagamento"].includes(m.c));
+        const nada = strip(r.fase) === strip(p.fase) && strip(r.prob) === strip(p.prob) && Math.abs((r.vProv || 0) - (p.vProv || 0)) < 1 && strip(r.situacao) === strip(p.situacao);
+        if (novos.length && nada) add("V39", r, { ...base, campo: "fase", view: `${show(r.fase)} / ${show(r.prob)} / ${fmtR(r.vProv)}`, anterior: `${show(p.fase)} / ${show(p.prob)} / ${fmtR(p.vProv)}`, datajud: novos.slice(-3).map((m) => `${fmtD(m.d)} ${REL_PT[m.c]}`).join("; "), detalhe: `${novos.length} andamento(s) relevante(s) desde ${fmtD(prevDate)} sem mudança no cadastro.` });
+      }
+    }
+  }
+  const order = { E: 0, A: 1, I: 2 };
+  out.sort((a, b) => order[a.sev] - order[b.sev] || a.rule.localeCompare(b.rule) || String(a.cnj).localeCompare(String(b.cnj)));
+  return out;
+}
+
+// quais processos consultar no DataJud: ativos + encerrados nos últimos 12 meses
+function djTargets(cur, today) {
+  const hoje = today || new Date().toISOString().slice(0, 10);
+  return [...new Set(cur.filter((r) => r.cnj.length === 20 && !cnjValid(r.cnj) && (ATIVO(r) || (r.encerr && days(r.encerr, hoje) < 365))).map((r) => r.cnj))];
+}
+
+module.exports = { FIELDS, RULES: RULES.map(([id]) => RULE[id]), RULE, CATS, SEVS, DEFAULTS, mapView, run, djTargets, djView, fmtCnj, cnjValid, cpfValid, faseInfo, toNum, toDate };
+
+return module.exports; })();
+</script>
+<script>
+/* ===== Validador de Relatório: tela (roda 100% no navegador) ===== */
+(() => {
+  const V = window.VENGINE;
+  const $ = (s, el = document) => el.querySelector(s);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmtN = (n) => Number(n || 0).toLocaleString("pt-BR");
+  const fmtD = (s) => (s ? s.slice(0, 10).split("-").reverse().join("/") : "");
+  const fmtTs = (s) => (s ? new Date(s).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "");
+  const fmtMoney = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const today = () => new Date().toISOString().slice(0, 10);
+  const LS = {
+    get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status"); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3800); }
+  const userName = () => $("#user").value.trim() || "usuário";
+  const FTYPE = Object.fromEntries(V.FIELDS.map(([k, l, , t]) => [k, t || "text"]));
+  const FLABEL = Object.fromEntries(V.FIELDS.map(([k, l]) => [k, l]));
+  const ONLINE = /^https?:$/.test(location.protocol);
+
+  /* ---------- estado ---------- */
+  const S = {
+    cur: null,          // {name, size, kind, buf, wb, sheet, ws, rows, map, headerRow, records, off:{r,c}, delim}
+    prev: null,         // {name, records, refDate}
+    edits: {},          // "row|key" -> {v: texto digitado, before, rule, by, at}
+    dec: {},            // issueKey -> {status, note, by, at}
+    dj: null,           // {results, notFound, queried, at}
+    issues: [], firstKeys: null,
+    f: { sev: "", st: "open", q: "", rule: "", cat: "", cli: "" }, page: 0,
+  };
+  const PER = 100;
+  const storeKey = () => (S.cur ? `vr:${S.cur.name}|${S.cur.size}|${S.cur.sheet}` : null);
+  const persist = () => { const k = storeKey(); if (k) LS.set(k, { edits: S.edits, dec: S.dec, firstKeys: S.firstKeys, prevName: S.prev ? S.prev.name : null }); };
+
+  $("#user").value = LS.get("vr:user") || "";
+  $("#user").addEventListener("change", () => LS.set("vr:user", $("#user").value.trim()));
+
+  /* ---------- leitura dos arquivos ---------- */
+  function detectDelim(txt) {
+    const first = txt.split(/\r?\n/, 1)[0];
+    return [";", "\t", ","].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  }
+  async function readFile(file) {
+    const buf = await file.arrayBuffer();
+    const u8 = new Uint8Array(buf);
+    const isZip = u8[0] === 0x50 && u8[1] === 0x4b;
+    let kind = "xlsx", delim = null, wb;
+    if (isZip) wb = XLSX.read(u8, { type: "array", cellDates: false, cellStyles: false });
+    else {
+      let txt = new TextDecoder("utf-8").decode(u8);
+      if (txt.includes("�")) txt = new TextDecoder("windows-1252").decode(u8);
+      txt = txt.replace(/^﻿/, "");
+      if (/^\s*[\[{]/.test(txt)) {
+        let j = JSON.parse(txt);
+        if (!Array.isArray(j)) j = j.value || j.data || j.rows || j.items || Object.values(j).find(Array.isArray) || [];
+        const cols = [...new Set(j.flatMap((o) => Object.keys(o)))];
+        wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cols, ...j.map((o) => cols.map((c) => o[c] ?? ""))]), "view");
+        kind = "json";
+      } else if (/^\s*<(table|html|!doctype)/i.test(txt) && /<table/i.test(txt)) {
+        wb = XLSX.read(txt, { type: "string" }); kind = "xls";
+      } else {
+        delim = detectDelim(txt); kind = "csv";
+        wb = XLSX.read(txt, { type: "string", FS: delim, raw: true });
+      }
+    }
+    if (!isZip || /\.xls$/i.test(file.name)) kind = kind === "xlsx" ? "xls" : kind;
+    // escolhe a aba que tem a coluna do processo com mais linhas
+    let best = null;
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      if (!ws || !ws["!ref"]) continue;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: true, defval: "" });
+      const m = V.mapView(rows);
+      if (m.map.cnj === undefined) continue;
+      const score = m.records.length + Object.keys(m.map).length * 1000;
+      if (!best || score > best.score) best = { score, name, ws, rows, m };
+    }
+    if (!best) throw new Error("Não encontrei a coluna com o número do processo em nenhuma aba (nem pelo nome, nem pelo formato CNJ).");
+    const rng = XLSX.utils.decode_range(best.ws["!ref"]);
+    return { name: file.name, size: file.size, kind, delim, buf, wb, sheet: best.name, ws: best.ws, rows: best.rows, map: best.m.map, columns: best.m.columns, missing: best.m.missing, headerRow: best.m.headerRow, records: best.m.records, off: { r: rng.s.r, c: rng.s.c } };
+  }
+
+  /* ---------- edições ---------- */
+  function parseInput(key, txt) {
+    const t = String(txt ?? "").trim();
+    const type = FTYPE[key];
+    if (!t) return { ok: true, val: type === "num" || type === "date" ? null : "" };
+    if (type === "num") { const n = V.toNum(t); return n === null ? { ok: false, msg: `"${t}" não é um número.` } : { ok: true, val: n }; }
+    if (type === "date") { const d = V.toDate(t); return d ? { ok: true, val: d } : { ok: false, msg: `"${t}" não é uma data (use dd/mm/aaaa).` }; }
+    return { ok: true, val: t };
+  }
+  function display(key, v) {
+    if (v === null || v === undefined) return "";
+    if (FTYPE[key] === "num") return fmtMoney(v);
+    if (FTYPE[key] === "date") return fmtD(v);
+    return String(v);
+  }
+  function workingRecords() {
+    if (!S.cur) return [];
+    const byRow = {};
+    for (const [k, e] of Object.entries(S.edits)) { const [row, key] = k.split("|"); (byRow[row] = byRow[row] || {})[key] = e; }
+    return S.cur.records.map((r) => {
+      const ed = byRow[r._row];
+      if (!ed) return r;
+      const x = Object.assign({}, r);
+      for (const [key, e] of Object.entries(ed)) {
+        const p = parseInput(key, e.v);
+        if (!p.ok) continue;
+        x[key] = p.val;
+        if (key === "cnj") { x.cnjRaw = p.val; x.cnj = String(p.val || "").replace(/\D/g, ""); }
+      }
+      return x;
+    });
+  }
+  const origOf = (row) => S.cur.records.find((r) => r._row === row);
+
+  /* ---------- sugestões automáticas ---------- */
+  function suggestion(i, rec) {
+    if (i.rule === "V04" && rec) {
+      const d = String(rec.cpf || "").replace(/\D/g, "");
+      if (d.length === 22 && d.slice(0, 11) === d.slice(11)) { const c = d.slice(0, 11); const fmt = `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}`; if (!V.cpfValid(c)) return { key: "cpf", v: fmt, txt: `CPF repetido duas vezes no campo. Sugestão: ${fmt}` }; }
+    }
+    if (i.rule === "V12" && rec && rec.fase && /arquiv/i.test(rec.fase)) return { key: "situacao", v: "Encerrado", txt: 'Fase "Arquivado" com data de encerramento: a situação provavelmente é "Encerrado".' };
+    if (i.rule === "V13" && rec && /andamento|ativo/i.test(rec.situacao || "") && /arquiv/i.test(rec.fase || "") && rec.encerr) return { key: "situacao", v: "Encerrado", txt: 'Já tem data de encerramento: a situação provavelmente é "Encerrado".' };
+    return null;
+  }
+
+  /* ---------- processamento ---------- */
+  function recompute() {
+    if (!S.cur) { S.issues = []; return; }
+    const recs = workingRecords();
+    const dj = S.dj ? { results: S.dj.results, notFound: S.dj.notFound, queried: S.dj.queried } : null;
+    const edited = {};
+    Object.keys(S.edits).forEach((k) => { const [row, key] = k.split("|"); (edited[row] = edited[row] || new Set()).add(key); });
+    // correção feita aqui não conta como "dado fixo alterado" em relação ao relatório anterior
+    S.issues = V.run({ cur: recs, prev: S.prev ? S.prev.records : null, prevDate: S.prev ? S.prev.refDate : null, dj, today: today() })
+      .filter((i) => !(i.rule === "V27" && edited[i.linha] && String(i.campo).split(",").every((k) => edited[i.linha].has(k))));
+    S.recs = recs;
+    const seen = new Set(S.firstKeys || []);
+    const before = seen.size;
+    S.issues.forEach((i) => seen.add(i.key));
+    if (!S.firstKeys || seen.size !== before) { S.firstKeys = [...seen]; persist(); }
+  }
+
+  /* ---------- tela ---------- */
+  function renderState() {
+    const c = S.cur;
+    const warn = [];
+    if (c) {
+      $("#curName").textContent = c.name;
+      $("#curMeta").innerHTML = `${fmtN(c.records.length)} processos · aba "${esc(c.sheet)}" · cabeçalho na linha ${c.headerRow + c.off.r} · coluna do processo: <b>${esc(c.columns.cnj)}</b>`;
+      const imp = (c.missing || []).filter((m) => ["situacao", "fase", "prob", "vProv", "distrib", "autor"].includes(m.key));
+      if (imp.length) warn.push(`<div class="notice warn">Colunas não encontradas na view: <b>${imp.map((m) => esc(m.label)).join(", ")}</b>. As regras que usam esses campos ficam sem efeito. Veja em "Ver as regras" os nomes aceitos.</div>`);
+    } else { $("#curName").textContent = "Nenhuma view carregada"; $("#curMeta").textContent = "Arraste aqui o export da view (.xlsx, .csv ou .json)."; }
+    $("#prevName").textContent = S.prev ? S.prev.name : "Opcional";
+    $("#prevMeta").innerHTML = S.prev ? `${fmtN(S.prev.records.length)} processos · valores até ${esc(fmtD(S.prev.refDate))}` : "Suba o relatório entregue da última vez para ligar as regras de comparação (mudou fase, mudou provisão, sumiu processo…).";
+    $("#btnPrevClear").hidden = !S.prev;
+    // DataJud
+    const btn = $("#btnRun");
+    if (!ONLINE) {
+      btn.disabled = true;
+      $("#djName").textContent = "Indisponível neste modo";
+      $("#djMeta").innerHTML = "Aberto como arquivo, o navegador não alcança a API do CNJ. Para consultar o DataJud, abra o validador pelo endereço do app online (/validador-relatorio). As demais regras funcionam normalmente.";
+    } else {
+      btn.disabled = !c || S.running;
+      if (S.dj) { const f = Object.keys(S.dj.results).length; $("#djName").textContent = `${fmtN(f)} encontrados de ${fmtN(S.dj.queried.length)} consultados`; $("#djMeta").textContent = `Consulta em ${fmtTs(S.dj.at)}${S.dj.notFound.length ? ` · ${fmtN(S.dj.notFound.length)} não encontrados` : ""}${S.dj.errors ? ` · ${fmtN(S.dj.errors)} lotes com erro` : ""}.`; }
+      else { $("#djName").textContent = "Ainda não consultado"; $("#djMeta").textContent = c ? `${fmtN(V.djTargets(workingRecords()).length)} processos elegíveis (ativos e encerrados nos últimos 12 meses).` : "Suba a view para começar."; }
+    }
+    $("#warn").innerHTML = warn.join("");
+    const nEd = Object.keys(S.edits).length;
+    $("#btnExport").disabled = !c;
+    $("#btnExport").textContent = nEd ? `Baixar view corrigida (${fmtN(nEd)} ${nEd === 1 ? "correção" : "correções"})` : "Baixar view corrigida";
+    $("#btnLog").disabled = !c;
+    $("#btnReset").hidden = !c || (!nEd && !Object.keys(S.dec).length);
+    // clientes
+    const cl = {};
+    (S.recs || []).forEach((r) => { cl[r.cliente] = (cl[r.cliente] || 0) + 1; });
+    const ent = Object.entries(cl).sort((a, b) => b[1] - a[1]);
+    $("#fCli").innerHTML = `<option value="">Todos os clientes</option>` + ent.map(([n, k]) => `<option value="${esc(n)}">${esc(n)} (${fmtN(k)})</option>`).join("");
+    if (!cl[S.f.cli]) S.f.cli = "";
+    $("#fCli").value = S.f.cli;
+  }
+
+  const statusOf = (i) => (S.dec[i.key] && S.dec[i.key].status) || "Aberto";
+  function filtered() {
+    const q = S.f.q.toLowerCase().trim(), qd = q.replace(/\D/g, "");
+    return S.issues.filter((i) => (!S.f.cli || i.cliente === S.f.cli) && (!S.f.sev || i.sev === S.f.sev)
+      && (!S.f.st || (S.f.st === "open" ? statusOf(i) === "Aberto" : statusOf(i) === S.f.st))
+      && (!q || (qd.length >= 6 && i.cnj.includes(qd)) || [i.autor, i.detalhe, i.view, i.cnjFmt, i.datajud].join(" ").toLowerCase().includes(q)));
+  }
+
+  function renderAll() {
+    renderState();
+    const c = S.cur;
+    const R = V.RULE;
+    const cur = new Set(S.issues.map((i) => i.key));
+    const resolved = S.firstKeys ? S.firstKeys.filter((k) => !cur.has(k)).length : 0;
+    const b = filtered();
+    const cnt = (fn) => b.filter(fn).length;
+    const procs = new Set(b.map((i) => i.cnj || i.linha)).size;
+    const k = [
+      ["", fmtN(procs), "processos com pendência", ""],
+      ["E", fmtN(cnt((i) => i.sev === "E")), "erros", "e"],
+      ["cad", fmtN(cnt((i) => i.cat === "cad")), V.CATS.cad, ""],
+      ["coe", fmtN(cnt((i) => i.cat === "coe")), V.CATS.coe, ""],
+      ["var", fmtN(cnt((i) => i.cat === "var")), V.CATS.var, ""],
+      ["dj", fmtN(cnt((i) => i.cat === "dj")), V.CATS.dj, ""],
+      ["ok", fmtN(resolved), "sanados nesta revisão", "ok"],
+    ];
+    $("#kpis").innerHTML = c ? k.map(([id, n, l, cls]) => `<button type="button" class="kpi ${cls}" data-k="${id}" aria-pressed="${(id === "E" && S.f.sev === "E") || (id && id === S.f.cat) ? "true" : "false"}" ${id === "ok" ? "disabled" : ""}><b>${n}</b><span>${esc(l)}</span></button>`).join("") : "";
+    const byRule = {};
+    b.filter((i) => !S.f.cat || i.cat === S.f.cat).forEach((i) => { byRule[i.rule] = (byRule[i.rule] || 0) + 1; });
+    const so = { E: 0, A: 1, I: 2 };
+    const ids = Object.keys(byRule).sort((x, y) => so[R[x].sev] - so[R[y].sev] || byRule[y] - byRule[x]);
+    $("#ruleList").innerHTML = ids.length ? ids.map((id) => `<li><button type="button" data-rule="${id}" aria-pressed="${S.f.rule === id}"><span class="sev ${R[id].sev}">${id}</span><span>${esc(R[id].name)}</span><span class="c">${fmtN(byRule[id])}</span></button></li>`).join("") : `<li class="empty">${c ? "Nada por aqui." : "Suba a view."}</li>`;
+    const list = b.filter((i) => (!S.f.cat || i.cat === S.f.cat) && (!S.f.rule || i.rule === S.f.rule));
+    $("#listTitle").textContent = S.f.rule ? `${S.f.rule} · ${R[S.f.rule].name}` : "Inconsistências";
+    $("#listCount").textContent = `${fmtN(list.length)} ${list.length === 1 ? "item" : "itens"}`;
+    const pages = Math.max(1, Math.ceil(list.length / PER));
+    if (S.page >= pages) S.page = pages - 1;
+    const slice = list.slice(S.page * PER, S.page * PER + PER);
+    let help = "";
+    if (S.f.rule) {
+      const sug = list.map((i) => ({ i, s: suggestion(i, (S.recs || []).find((r) => r._row === i.linha)) })).filter((x) => x.s);
+      help = `<div class="notice" style="margin:12px"><b>O que é:</b> ${esc(R[S.f.rule].se)}<br><b>O que fazer:</b> ${esc(R[S.f.rule].acao)}${sug.length ? `<div class="row" style="margin-top:8px"><button type="button" class="primary" id="bulkSug">Aplicar a sugestão nos ${fmtN(sug.length)} ${sug.length === 1 ? "caso" : "casos"}</button><span class="small muted">${esc(sug[0].s.txt.split(":")[0])}</span></div>` : ""}</div>`;
+    }
+    if (!c) { $("#listWrap").innerHTML = `<div class="empty">Arraste o export da view no passo 1 (ou clique em "Escolher arquivo").<br><span class="small">Nada sai do seu computador: a leitura e a validação acontecem no navegador.</span></div>`; return; }
+    if (!list.length) { $("#listWrap").innerHTML = help + `<div class="empty">Nenhuma inconsistência com esses filtros.</div>`; return; }
+    $("#listWrap").innerHTML = help + `<table class="tbl"><thead><tr><th>Grav.</th><th>Processo</th><th class="hide-m">Cliente</th><th>O que foi encontrado</th><th>Status</th></tr></thead><tbody>` +
+      slice.map((i) => { const st = statusOf(i); return `<tr class="click" data-row="${i.linha || ""}" data-key="${esc(i.key)}" tabindex="0"><td><span class="sev ${i.sev}">${i.rule}</span></td><td><span class="mono">${esc(i.cnjFmt || "linha " + i.linha)}</span><div class="muted small">${esc(i.autor || "")}${i.linha ? ` · linha ${i.linha + S.cur.off.r}` : ""}</div></td><td class="hide-m small">${esc(i.cliente)}</td><td class="what"><b>${esc(R[i.rule].name)}</b><div class="small">${esc(i.detalhe)}</div></td><td><span class="st ${st === "Justificado" ? "j" : ""}">${esc(st)}</span></td></tr>`; }).join("") +
+      `</tbody></table>` + (pages > 1 ? `<div class="pager"><button type="button" data-pg="-1" ${S.page ? "" : "disabled"}>Anterior</button><span class="small muted">página ${S.page + 1} de ${pages}</span><button type="button" data-pg="1" ${S.page < pages - 1 ? "" : "disabled"}>Próxima</button></div>` : "");
+  }
+  const refresh = () => { recompute(); renderAll(); };
+
+  /* ---------- eventos: filtros ---------- */
+  $("#kpis").addEventListener("click", (e) => { const b = e.target.closest("[data-k]"); if (!b) return; const k = b.dataset.k; if (k === "E") { S.f.sev = S.f.sev === "E" ? "" : "E"; $("#fSev").value = S.f.sev; } else if (k) { S.f.cat = S.f.cat === k ? "" : k; S.f.rule = ""; } else { S.f.cat = ""; S.f.rule = ""; } S.page = 0; renderAll(); });
+  $("#ruleList").addEventListener("click", (e) => { const b = e.target.closest("[data-rule]"); if (!b) return; S.f.rule = S.f.rule === b.dataset.rule ? "" : b.dataset.rule; S.page = 0; renderAll(); });
+  $("#fCli").addEventListener("change", (e) => { S.f.cli = e.target.value; S.page = 0; renderAll(); });
+  $("#fSev").addEventListener("change", (e) => { S.f.sev = e.target.value; S.page = 0; renderAll(); });
+  $("#fSt").addEventListener("change", (e) => { S.f.st = e.target.value; S.page = 0; renderAll(); });
+  let qt; $("#fQ").addEventListener("input", (e) => { clearTimeout(qt); qt = setTimeout(() => { S.f.q = e.target.value; S.page = 0; renderAll(); }, 200); });
+  $("#btnClear").addEventListener("click", () => { S.f = { sev: "", st: "open", q: "", rule: "", cat: "", cli: "" }; $("#fSev").value = ""; $("#fSt").value = "open"; $("#fQ").value = ""; S.page = 0; renderAll(); });
+  $("#listWrap").addEventListener("click", (e) => {
+    if (e.target.id === "bulkSug") return bulkSuggest();
+    const pg = e.target.closest("[data-pg]"); if (pg) { S.page += +pg.dataset.pg; renderAll(); window.scrollTo({ top: $("#listWrap").offsetTop - 80 }); return; }
+    const tr = e.target.closest("tr[data-key]"); if (tr) openCase(+tr.dataset.row, tr.dataset.key);
+  });
+  $("#listWrap").addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const tr = e.target.closest("tr[data-key]"); if (tr) openCase(+tr.dataset.row, tr.dataset.key); });
+
+  function setEdit(row, key, v, rule) {
+    const o = origOf(row);
+    const before = display(key, key === "cnj" ? o.cnjRaw : o[key]);
+    const id = `${row}|${key}`;
+    if (String(v).trim() === String(before).trim()) delete S.edits[id];
+    else S.edits[id] = { v: String(v), before, rule: rule || "", by: userName(), at: new Date().toISOString(), cnj: o.cnjRaw || "" };
+  }
+  function bulkSuggest() {
+    const list = filtered().filter((i) => i.rule === S.f.rule);
+    let n = 0;
+    for (const i of list) { const rec = S.recs.find((r) => r._row === i.linha); const s = suggestion(i, rec); if (s) { setEdit(i.linha, s.key, s.v, i.rule); n++; } }
+    persist(); refresh(); toast(`${fmtN(n)} ${n === 1 ? "correção aplicada" : "correções aplicadas"}. Elas entram na view corrigida.`);
+  }
+
+  /* ---------- carregar arquivos ---------- */
+  async function loadCur(file) {
+    if (!file) return;
+    $("#curName").textContent = "Lendo…";
+    try {
+      const c = await readFile(file);
+      S.cur = c; S.dj = null; S.f = { sev: "", st: "open", q: "", rule: "", cat: "", cli: "" };
+      const saved = LS.get(storeKey());
+      S.edits = (saved && saved.edits) || {}; S.dec = (saved && saved.dec) || {}; S.firstKeys = (saved && saved.firstKeys) || null;
+      refresh();
+      toast(`${file.name}: ${fmtN(c.records.length)} processos lidos${Object.keys(S.edits).length ? `, ${fmtN(Object.keys(S.edits).length)} correções recuperadas desta planilha` : ""}.`);
+      if (ONLINE && S.autoDj !== false && V.djTargets(workingRecords()).length) runDataJud();
+    } catch (e) { toast(e.message); renderAll(); }
+  }
+  async function loadPrev(file) {
+    if (!file) return;
+    try {
+      const p = await readFile(file);
+      const refDate = p.records.map((r) => r.dtAtual).filter(Boolean).sort().pop() || null;
+      S.prev = { name: file.name, records: p.records, refDate };
+      refresh(); toast(`Relatório anterior: ${fmtN(p.records.length)} processos.`);
+    } catch (e) { toast(e.message); }
+  }
+  $("#btnCur").addEventListener("click", () => $("#fileCur").click());
+  $("#btnPrev").addEventListener("click", () => $("#filePrev").click());
+  $("#fileCur").addEventListener("change", (e) => { loadCur(e.target.files[0]); e.target.value = ""; });
+  $("#filePrev").addEventListener("change", (e) => { loadPrev(e.target.files[0]); e.target.value = ""; });
+  $("#btnPrevClear").addEventListener("click", () => { S.prev = null; if (S.firstKeys) S.firstKeys = S.firstKeys.filter((k) => !/^V2[0-9]\|/.test(k) && !/^V39\|/.test(k)); refresh(); });
+  for (const [zone, fn] of [["#dropCur", loadCur], ["#dropPrev", loadPrev]]) {
+    const z = $(zone);
+    z.addEventListener("dragover", (e) => { e.preventDefault(); z.classList.add("drag"); });
+    z.addEventListener("dragleave", () => z.classList.remove("drag"));
+    z.addEventListener("drop", (e) => { e.preventDefault(); z.classList.remove("drag"); fn(e.dataTransfer.files[0]); });
+  }
+  $("#btnReset").addEventListener("click", () => { if (!confirm("Descartar todas as correções e justificativas desta planilha?")) return; S.edits = {}; S.dec = {}; S.firstKeys = null; persist(); refresh(); });
+
+  /* ---------- DataJud (só quando aberto pelo app online) ---------- */
+/* Consulta via /api/lote (mesma rota da tela "Busca em lote", já validada no servidor) e conversão para o resumo usado nas regras */
+const DJ_CATS = [["transito", /tr[aâ]nsito em julgado/i], ["baixa", /baixa definitiva|arquivamento|arquivad/i], ["acordo", /homologa[cç][aã]o de transa|acordo|concilia[cç][aã]o/i], ["pagamento", /pagamento|levantamento|libera[cç][aã]o de (valor|dep)/i], ["calculos", /homologa[cç][aã]o.*c[aá]lcul|liquida[cç][aã]o/i], ["execucao", /execu[cç][aã]o/i], ["acordao", /provimento|ac[oó]rd[aã]o|conhecimento em parte|n[aã]o conhecimento|n[aã]o-conhecimento/i], ["sentenca", /proced[eê]ncia|improced[eê]ncia|extin[cç][aã]o|julgamento|senten[cç]a|resolu[cç][aã]o do m[eé]rito/i], ["recurso", /recurso|agravo|embargos/i]];
+const djClassify = (n) => { for (const [k, re] of DJ_CATS) if (re.test(n || "")) return k; return null; };
+function djFromLote(p) {
+  const mv = (p.andamentos || []).filter((m) => m.dataHora).sort((a, b) => (a.dataHora < b.dataHora ? -1 : 1));
+  const last = mv[mv.length - 1];
+  return [{ trib: p.tribunal, grau: p.grau || "G1", orgao: p.orgaoJulgador && p.orgaoJulgador.nome, ajuiz: String(p.dataAjuizamento || "").replace(/\D/g, "").slice(0, 8), nMov: mv.length,
+    last: last ? { d: last.dataHora.slice(0, 10), n: last.nome } : null,
+    rel: mv.map((m) => ({ d: m.dataHora.slice(0, 10), n: m.nome, c: djClassify(m.nome) })).filter((m) => m.c),
+    recent: mv.slice(-12).map((m) => ({ d: m.dataHora.slice(0, 10), n: m.nome })) }];
+}
+// consulta um lote de números (até 50); devolve {results, notFound, failed, error}
+async function djConsultaLote(cnjs) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 180000);
+  try {
+    const r = await fetch("/api/lote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itens: cnjs.map((n) => ({ numeroProcesso: n })) }), signal: ctl.signal });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok || b.error) throw new Error(b.error || ("Erro " + r.status));
+    const results = {}, notFound = [], failed = [];
+    for (const p of b.resultados || []) {
+      const d = String(p.numeroProcesso || "").replace(/\D/g, "");
+      if (p.encontrado) results[d] = djFromLote(p); else if (p.erro) failed.push(d); else notFound.push(d);
+    }
+    return { results, notFound, failed };
+  } catch (e) { throw new Error(e.name === "AbortError" ? "O DataJud demorou mais de 3 minutos para responder." : e.message); }
+  finally { clearTimeout(t); }
+}
+
+  async function runDataJud() {
+    if (!ONLINE || S.running || !S.cur) return;
+    const targets = V.djTargets(workingRecords().filter((r) => !S.f.cli || r.cliente === S.f.cli));
+    if (!targets.length) return;
+    S.running = true; renderState();
+    const bar = $("#djBar"); bar.hidden = false;
+    const results = S.dj ? Object.assign({}, S.dj.results) : {}, notFound = new Set(S.dj ? S.dj.notFound : []), queried = new Set(S.dj ? S.dj.queried : []);
+    let errors = 0, lastErr = "";
+    try {
+      for (let i = 0; i < targets.length; i += 25) {
+        const part = targets.slice(i, i + 25);
+        $("#djName").textContent = `Consultando… ${fmtN(i)} de ${fmtN(targets.length)}`;
+        bar.firstElementChild.style.width = Math.round((i / targets.length) * 100) + "%";
+        try {
+          const b = await djConsultaLote(part);
+          if (b.failed.length) { errors++; lastErr = "alguns processos não responderam"; }
+          const failed = new Set(b.failed);
+          for (const x of part) {
+            if (failed.has(x)) continue;
+            queried.add(x);
+            if (b.results[x]) { results[x] = b.results[x]; notFound.delete(x); } else notFound.add(x);
+          }
+        } catch (e) { errors++; lastErr = e.message; if (i === 0) throw e; }
+      }
+      S.dj = { results, notFound: [...notFound], queried: [...queried], at: new Date().toISOString(), errors };
+      if (errors) toast(`${errors} lote(s) do DataJud não responderam (${lastErr}). Clique em Processar de novo para completar.`);
+    } catch (e) { toast("DataJud: " + e.message); }
+    S.running = false; bar.hidden = true;
+    refresh();
+  }
+  $("#btnRun").addEventListener("click", runDataJud);
+
+  /* ---------- detalhe e correção ---------- */
+  const ORDER = ["cnj", "situacao", "fase", "prob", "vProv", "vPoss", "vRem", "vAtual", "vOrig", "dtAtual", "distrib", "entrada", "encerr", "motivo", "vara", "comarca", "autor", "cpf", "reu", "outras", "contrat", "funcao", "admissao", "demissao", "garTipo", "garValor", "garData", "tipo", "natureza", "area", "cod"];
+  let openRow = null;
+  function openCase(row, key) {
+    const issuesAll = S.issues;
+    const recNow = row ? S.recs.find((r) => r._row === row) : null;
+    const cnj = recNow ? recNow.cnj : (issuesAll.find((i) => i.key === key) || {}).cnj;
+    const iss = issuesAll.filter((i) => (row && i.linha === row) || (!row && i.key === key) || (cnj && i.cnj === cnj && i.linha === row));
+    const prevRec = S.prev && cnj ? S.prev.records.find((r) => r.cnj === cnj) : null;
+    const djx = S.dj && cnj ? S.dj.results[cnj] : null;
+    openRow = row;
+    const hit = new Set(iss.flatMap((i) => String(i.campo || "").split(",")));
+    const mapped = ORDER.filter((k) => S.cur.map[k] !== undefined);
+    mapped.sort((a, b) => (hit.has(b) ? 1 : 0) - (hit.has(a) ? 1 : 0));
+    const R = V.RULE;
+    const d = $("#drawer");
+    const movs = (djx || []).flatMap((inst) => (inst.recent || []).map((m) => ({ ...m, grau: inst.grau }))).sort((x, y) => (x.d < y.d ? 1 : -1)).slice(0, 14);
+    const relSet = new Set((djx || []).flatMap((inst) => (inst.rel || []).map((m) => m.d + m.n)));
+    const colL = (k) => XLSX.utils.encode_col(S.cur.off.c + S.cur.map[k]);
+    d.innerHTML = `<div class="hd"><div><div class="mono"><b>${esc(recNow ? V.fmtCnj(recNow.cnj) || recNow.cnjRaw : "")}</b></div><div class="muted small">${esc(recNow ? recNow.autor : "")} · ${esc(recNow ? recNow.cliente : "")}${row ? ` · linha ${row + S.cur.off.r} da view` : ""}</div></div><span style="flex:1"></span><button type="button" id="closeCase">Fechar</button></div>
+    <div class="bd">
+      <section class="col"><h3>${iss.length ? `${iss.length} ${iss.length === 1 ? "problema" : "problemas"} nesta linha` : "Sem pendências nesta linha"}</h3>
+      ${iss.length ? "" : `<div class="notice ok">Tudo certo aqui. As correções feitas entram na view corrigida.</div>`}
+      ${iss.map((i) => { const st = S.dec[i.key] || {}; const sg = suggestion(i, recNow); return `<div class="iss" data-key="${esc(i.key)}"><div class="row"><span class="sev ${i.sev}">${i.rule}</span><b>${esc(R[i.rule].name)}</b><span style="flex:1"></span><span class="st ${st.status === "Justificado" ? "j" : ""}">${esc(st.status || "Aberto")}</span></div>
+        <div>${esc(i.detalhe)}</div>
+        ${i.anterior ? `<div class="small"><span class="muted">Relatório anterior:</span> ${esc(i.anterior)}</div>` : ""}
+        ${i.datajud ? `<div class="small"><span class="muted">DataJud:</span> ${esc(i.datajud)}</div>` : ""}
+        <div class="fix"><b>O que fazer:</b> ${esc(R[i.rule].acao)}</div>
+        ${sg ? `<div class="row"><button type="button" class="primary" data-sug="${esc(sg.key)}" data-v="${esc(sg.v)}" data-rule="${i.rule}">Aplicar sugestão</button><span class="small">${esc(sg.txt)}</span></div>` : ""}
+        ${st.note ? `<div class="small muted">Justificativa de ${esc(st.by)} em ${esc(fmtTs(st.at))}: ${esc(st.note)}</div>` : ""}
+        <div class="row"><button type="button" data-act="Justificado">Justificar (não é erro)</button>${st.status ? `<button type="button" data-act="Aberto">Reabrir</button>` : ""}</div></div>`; }).join("")}
+      </section>
+      ${row ? `<section class="col"><h3>Corrigir na view</h3><p class="small muted" style="margin:0">Altere o valor e clique em Salvar. A validação roda de novo na hora; o problema some quando o dado fica certo. Datas em dd/mm/aaaa, valores como 1.234,56.</p>
+      <form id="editForm"><div style="overflow:auto"><table class="cmp"><thead><tr><th>Campo</th><th>Coluna</th><th>Valor na view</th>${S.prev ? `<th>Relatório anterior</th>` : ""}</tr></thead><tbody>
+      ${mapped.map((k) => { const ed = S.edits[`${row}|${k}`]; const o = origOf(row); const ov = display(k, k === "cnj" ? o.cnjRaw : o[k]); const cur = ed ? ed.v : ov; return `<tr class="${hit.has(k) ? "hit" : ""}"><td>${esc(FLABEL[k])}${ed ? `<div class="small was">antes: ${esc(ed.before || "vazio")}</div>` : ""}</td><td class="mono small">${esc(colL(k))}</td><td><input name="${k}" value="${esc(cur)}" aria-label="${esc(FLABEL[k])}" class="${ed ? "changed" : ""}"></td>${S.prev ? `<td class="small">${prevRec ? esc(display(k, k === "cnj" ? prevRec.cnjRaw : prevRec[k])) || '<span class="muted">vazio</span>' : '<span class="muted">não constava</span>'}</td>` : ""}</tr>`; }).join("")}
+      </tbody></table></div><div class="row" style="margin-top:10px"><button type="submit" class="primary">Salvar correções</button><span class="small muted" id="formMsg"></span></div></form></section>` : ""}
+      ${cnj && ONLINE ? `<section class="col"><h3>DataJud</h3>${!S.dj ? `<div class="notice">Ainda não consultado.</div>` : S.dj.notFound.includes(cnj) ? `<div class="notice">Não encontrado na API pública do DataJud.</div>` : !djx ? `<div class="notice">Fora da consulta (encerrado há mais de 12 meses ou número inválido).</div>` :
+        `<div class="small muted">${djx.map((i) => `${esc(i.trib)} ${esc(i.grau)}: ${esc(i.orgao || "")}`).join("<br>")}</div><ul class="mov">${movs.map((m) => `<li class="${relSet.has(m.d + m.n) ? "rel" : ""}"><span class="mono">${esc(fmtD(m.d))}</span><span class="muted small">${esc(m.grau)}</span><span>${esc(m.n)}</span></li>`).join("")}</ul><div class="small muted">Em negrito: andamentos relevantes.</div>`}</section>` : ""}
+    </div>`;
+    d.hidden = false; $("#scrim").hidden = false;
+    $("#closeCase").focus();
+  }
+  function closeCase() { $("#drawer").hidden = true; $("#scrim").hidden = true; openRow = null; }
+  $("#scrim").addEventListener("click", closeCase);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#drawer").hidden) closeCase(); });
+  $("#drawer").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const row = openRow; if (!row) return;
+    const fd = new FormData(e.target);
+    const bad = [];
+    for (const [k, v] of fd.entries()) { const p = parseInput(k, v); if (!p.ok) bad.push(`${FLABEL[k]}: ${p.msg}`); }
+    if (bad.length) { $("#formMsg").textContent = bad.join(" "); return; }
+    const iss = S.issues.filter((i) => i.linha === row).map((i) => i.rule).join(",");
+    for (const [k, v] of fd.entries()) setEdit(row, k, v, iss);
+    persist();
+    const before = S.issues.filter((i) => i.linha === row).length;
+    refresh();
+    const after = S.issues.filter((i) => i.linha === row).length;
+    toast(after < before ? `${before - after} ${before - after === 1 ? "problema sanado" : "problemas sanados"} nesta linha.` : "Correção salva.");
+    openCase(row, "");
+  });
+  $("#drawer").addEventListener("click", (e) => {
+    if (e.target.id === "closeCase") return closeCase();
+    const sg = e.target.closest("[data-sug]");
+    if (sg) { setEdit(openRow, sg.dataset.sug, sg.dataset.v, sg.dataset.rule); persist(); refresh(); openCase(openRow, ""); toast("Sugestão aplicada."); return; }
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const key = b.closest("[data-key]").dataset.key, status = b.dataset.act;
+    if (status === "Justificado") {
+      const note = prompt("Por que isso não é erro? (fica no log de correções)", "");
+      if (note === null) return; if (!note.trim()) { toast("Escreva a justificativa."); return; }
+      S.dec[key] = { status, note: note.trim(), by: userName(), at: new Date().toISOString() };
+    } else delete S.dec[key];
+    persist(); renderAll(); openCase(openRow, key);
+  });
+
+  /* ---------- exportação: mesma planilha, só os valores corrigidos ---------- */
+  const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const serial = (iso) => (Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 86400000;
+  function cellXml(ref, sAttr, key, txt, origCell) {
+    const p = parseInput(key, txt);
+    const s = sAttr ? ` s="${sAttr}"` : "";
+    if (p.val === null || p.val === "") return `<c r="${ref}"${s}/>`;
+    const type = FTYPE[key];
+    if (type === "num") return `<c r="${ref}"${s}><v>${p.val}</v></c>`;
+    if (type === "date") {
+      if (origCell && origCell.t === "n") return `<c r="${ref}"${s}><v>${serial(p.val)}</v></c>`;
+      return `<c r="${ref}"${s} t="inlineStr"><is><t>${xmlEsc(fmtD(p.val))}</t></is></c>`;
+    }
+    return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(p.val)}</t></is></c>`;
+  }
+  const colNum = (letters) => letters.split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  function patchSheet(xml, patches) {
+    // patches: [{r (linha excel), ref, key, txt}]
+    const byRow = {};
+    patches.forEach((p) => (byRow[p.r] = byRow[p.r] || []).push(p));
+    for (const [rStr, ps] of Object.entries(byRow)) {
+      const r = +rStr;
+      const rowRe = new RegExp(`<row\\b[^>]*\\br="${r}"[^>]*?(?:/>|>([\\s\\S]*?)</row>)`);
+      let m = rowRe.exec(xml);
+      if (!m) {
+        // cria a linha na posição certa
+        const rows = [...xml.matchAll(/<row\b[^>]*\br="(\d+)"/g)];
+        const next = rows.find((x) => +x[1] > r);
+        const blank = `<row r="${r}"></row>`;
+        if (next) xml = xml.slice(0, next.index) + blank + xml.slice(next.index);
+        else xml = xml.replace(/<\/sheetData>/, blank + "</sheetData>").replace(/<sheetData\s*\/>/, `<sheetData>${blank}</sheetData>`);
+        m = rowRe.exec(xml);
+      }
+      let rowXml = m[0];
+      if (/\/>$/.test(rowXml) && !/<\/row>$/.test(rowXml)) rowXml = rowXml.replace(/\/>$/, "></row>");
+      const open = rowXml.slice(0, rowXml.indexOf(">") + 1);
+      let inner = rowXml.slice(open.length, rowXml.length - "</row>".length);
+      for (const p of ps) {
+        const cRe = new RegExp(`<c\\b([^>]*?)\\br="${p.ref}"([^>]*?)(?:/>|>([\\s\\S]*?)</c>)`);
+        const cm = cRe.exec(inner);
+        if (cm) {
+          const sm = /\bs="(\d+)"/.exec(cm[1] + cm[2]);
+          inner = inner.slice(0, cm.index) + cellXml(p.ref, sm ? sm[1] : "", p.key, p.txt, p.orig) + inner.slice(cm.index + cm[0].length);
+        } else {
+          const cells = [...inner.matchAll(/<c\b[^>]*\br="([A-Z]+)\d+"/g)];
+          const tc = colNum(p.ref.replace(/\d+/g, ""));
+          const nx = cells.find((x) => colNum(x[1]) > tc);
+          const nc = cellXml(p.ref, "", p.key, p.txt, p.orig);
+          inner = nx ? inner.slice(0, nx.index) + nc + inner.slice(nx.index) : inner + nc;
+        }
+      }
+      xml = xml.slice(0, m.index) + open + inner + "</row>" + xml.slice(m.index + m[0].length);
+    }
+    return xml;
+  }
+  function patchesList() {
+    const c = S.cur;
+    return Object.entries(S.edits).map(([id, e]) => {
+      const [row, key] = id.split("|");
+      const r = +row + c.off.r;
+      const col = XLSX.utils.encode_col(c.off.c + c.map[key]);
+      const ref = col + r;
+      return { r, ref, key, txt: e.v, orig: c.ws[ref], e, row: +row };
+    }).filter((p) => S.cur.map[p.key] !== undefined);
+  }
+  function download(blob, name) {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  }
+  const outName = (ext) => S.cur.name.replace(/\.[^.]+$/, "") + `_corrigido_${today()}.${ext}`;
+  async function exportView() {
+    const c = S.cur; const patches = patchesList();
+    if (!patches.length && !confirm("Nenhuma correção feita. Baixar a view sem alterações?")) return;
+    try {
+      if (c.kind === "xlsx") {
+        const zip = await JSZip.loadAsync(c.buf);
+        const wbXml = await zip.file("xl/workbook.xml").async("string");
+        const rels = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+        const sm = [...wbXml.matchAll(/<sheet\b[^>]*>/g)].map((x) => x[0]).find((t) => (/\bname="([^"]*)"/.exec(t) || [])[1] === xmlEsc(c.sheet).replace(/'/g, "&apos;") || (/\bname="([^"]*)"/.exec(t) || [])[1] === c.sheet) || [...wbXml.matchAll(/<sheet\b[^>]*>/g)][c.wb.SheetNames.indexOf(c.sheet)][0];
+        const rid = /\br:id="([^"]+)"/.exec(sm)[1];
+        const tgt = new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`).exec(rels)[0];
+        let target = /Target="([^"]+)"/.exec(tgt)[1];
+        const path = target.startsWith("/") ? target.slice(1) : "xl/" + target.replace(/^\.\//, "");
+        let xml = await zip.file(path).async("string");
+        xml = patchSheet(xml, patches);
+        zip.file(path, xml);
+        if (zip.file("xl/calcChain.xml")) {
+          zip.remove("xl/calcChain.xml");
+          zip.file("xl/_rels/workbook.xml.rels", rels.replace(/<Relationship\b[^>]*calcChain[^>]*\/>/, ""));
+          const ct = await zip.file("[Content_Types].xml").async("string");
+          zip.file("[Content_Types].xml", ct.replace(/<Override\b[^>]*calcChain[^>]*\/>/, ""));
+        }
+        const out = await zip.generateAsync({ type: "blob", compression: "DEFLATE", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        download(out, outName("xlsx"));
+      } else {
+        const aoa = c.rows.map((r) => r.slice());
+        for (const p of patches) {
+          const ri = p.row - 1, ci = c.map[p.key];
+          const v = parseInput(p.key, p.txt).val;
+          aoa[ri] = aoa[ri] || [];
+          aoa[ri][ci] = v === null ? "" : FTYPE[p.key] === "date" ? fmtD(v) : v;
+        }
+        if (c.kind === "csv") {
+          const csv = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(aoa), { FS: c.delim || ";" });
+          download(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), outName("csv"));
+        } else {
+          const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), c.sheet.slice(0, 31));
+          download(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })]), outName("xlsx"));
+        }
+      }
+      toast(`View corrigida baixada com ${fmtN(patches.length)} ${patches.length === 1 ? "alteração" : "alterações"}. Mesmas colunas e formato da original.`);
+    } catch (e) { console.error(e); toast("Não consegui gerar a planilha: " + e.message); }
+  }
+  function exportLog() {
+    const c = S.cur;
+    const R = V.RULE;
+    const ch = [["Linha", "Célula", "Processo", "Campo", "Coluna da view", "Antes", "Depois", "Regra(s)", "Por", "Quando"],
+      ...patchesList().sort((a, b) => a.r - b.r).map((p) => [p.r, p.ref, p.e.cnj, FLABEL[p.key], c.columns[p.key] || "", p.e.before, p.e.v, p.e.rule, p.e.by, fmtTs(p.e.at)])];
+    const pend = [["Gravidade", "Regra", "Problema", "Processo", "Cliente", "Autor", "Linha", "O que foi encontrado", "Relatório anterior", "DataJud", "O que fazer", "Status", "Justificativa", "Por"],
+      ...S.issues.map((i) => { const d = S.dec[i.key] || {}; return [V.SEVS[i.sev], i.rule, R[i.rule].name, i.cnjFmt, i.cliente, i.autor, i.linha ? i.linha + c.off.r : "", i.detalhe, i.anterior || "", i.datajud || "", R[i.rule].acao, d.status || "Aberto", d.note || "", d.by || ""]; })];
+    const cur = new Set(S.issues.map((i) => i.key));
+    const resumo = [["Validador de Relatório"], ["View", c.name], ["Aba", c.sheet], ["Processos", c.records.length], ["Relatório anterior", S.prev ? S.prev.name : "não usado"], ["DataJud", S.dj ? `consultado em ${fmtTs(S.dj.at)}` : "não consultado"], ["Problemas na primeira leitura", (S.firstKeys || []).length], ["Sanados", (S.firstKeys || []).filter((k) => !cur.has(k)).length], ["Justificados", S.issues.filter((i) => statusOf(i) === "Justificado").length], ["Abertos", S.issues.filter((i) => statusOf(i) === "Aberto").length], ["Células corrigidas", ch.length - 1], ["Gerado em", fmtTs(new Date().toISOString())], ["Por", userName()]];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), "Resumo");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ch), "Correções");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pend), "Pendências");
+    download(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })]), c.name.replace(/\.[^.]+$/, "") + `_log_validacao_${today()}.xlsx`);
+  }
+  $("#btnExport").addEventListener("click", exportView);
+  $("#btnLog").addEventListener("click", exportLog);
+
+  /* ---------- catálogo ---------- */
+  $("#btnRules").addEventListener("click", () => {
+    $("#rulesBody").innerHTML = `<p class="muted small">Gravidade: <span class="sev E">Erro</span> quase certo que está errado · <span class="sev A">Atenção</span> conferir · <span class="sev I">Info</span> só para saber.</p>` +
+      Object.entries(V.CATS).map(([ck, cl]) => `<h3 class="cat">${esc(cl)}</h3><table class="rulecat"><tbody>${V.RULES.filter((r) => r.cat === ck).map((r) => `<tr><td><span class="sev ${r.sev}">${r.id}</span></td><td><b>${esc(r.name)}</b><div>${esc(r.se)}</div><div class="muted">O que fazer: ${esc(r.acao)}</div></td></tr>`).join("")}</tbody></table>`).join("") +
+      `<h3 class="cat">Colunas da view reconhecidas</h3><table class="rulecat"><tbody>${V.FIELDS.map(([k, l, n]) => `<tr><td style="white-space:nowrap">${esc(l)}${S.cur && S.cur.columns[k] ? `<div class="small ok-t">achada: ${esc(S.cur.columns[k])}</div>` : ""}</td><td class="mono">${esc(n.join(", "))}</td></tr>`).join("")}</tbody></table>`;
+    $("#dlgRules").showModal();
+  });
+  $("#closeRules").addEventListener("click", () => $("#dlgRules").close());
+
+  renderAll();
+})();
+
+</script>
+</body>
+</html>
